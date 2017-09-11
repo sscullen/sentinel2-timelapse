@@ -7,13 +7,16 @@ import { Circle, Map, Marker, Popup, TileLayer, FeatureGroup } from 'react-leafl
 
 import { EditControl } from 'react-leaflet-draw';
 
+import axios from 'axios';
+
 import coordinator from 'coordinator';
 
+import "../style/_MapContainer.scss"
+
+import config from 'Config'
 
 
 const position = [51.505, -0.09];
-
-
 
 
 export default class MapContainer extends React.Component {
@@ -28,21 +31,49 @@ export default class MapContainer extends React.Component {
 
         this._onDeleted = this._onDeleted.bind(this);
 
-
     }
 
     getBoundsInMGRS(inputCoords) {
+
         let mgrsValues = [];
 
         let fn = coordinator('latlong', 'mgrs');
 
-        for (let value of inputCoords) {
-            mgrsValues.push(fn(value[0], value[1], 5));
+        for (let coord of inputCoords) {
+
+            console.log(coord)
+            console.log(coord.lat, coord.lng)
+            mgrsValues.push(fn(coord.lat, coord.lng, 5));
         }
 
         for (let value of mgrsValues) {
             console.log(value);
         }
+
+        let postObject = {
+            coords: mgrsValues
+        };
+
+        axios.post(config.server_address + '/listobjects', postObject).then(function (response) {
+
+            console.log(response);
+
+            //reset captcha after submission result (SOMEHOW)
+            if (response.data === 'success') {
+
+                console.log('it was a success')
+
+            } else {
+
+                console.log('it was not a success')
+            }
+
+        })
+            .catch(function (error) {
+                console.log(error);
+                console.log('something went wrong')
+            });
+
     }
 
 
@@ -58,11 +89,17 @@ export default class MapContainer extends React.Component {
 
         let coordArray = [];
 
-        for (const coord of coords) {
+        for (let coord of coords) {
             console.log(coord)
-            coordArray.push([coord.lat, coord.lng])
+
+
+            console.log('org coord', coord)
+            console.log('wrapped coord', coord.wrap())
+
+            coordArray.push(coord.wrap())
         }
 
+        console.log("coordarray is", coordArray)
         this.getBoundsInMGRS(coordArray);
     }
 
@@ -71,9 +108,14 @@ export default class MapContainer extends React.Component {
     }
 
     render() {
+
+        var southWest = new L.LatLng(-90, -200);
+        var northEast = new L.LatLng(90, 200);
+        var restrictBounds = new L.LatLngBounds(southWest, northEast);
+
         return (
             <div>
-                <Map center={position} zoom={13} height={400} className="mainMap">
+                <Map center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0}>
                     <FeatureGroup>
                         <EditControl
                             position='topright'
@@ -91,6 +133,7 @@ export default class MapContainer extends React.Component {
                     <TileLayer
                         url='http://{s}.tile.osm.org/{z}/{x}/{y}.png'
                         attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+                        // noWrap='false'
                     />
                     <Marker position={position}>
                         <Popup>

@@ -18,9 +18,9 @@ class App extends React.Component {
     render() {
         return (
             <div className="container">
-                <Main changeUsername={ this.props.setName } changeAge={ this.props.setAge }/>
-                <User username={this.props.user.name} age={this.props.user.age}/>
+
                 <MapContainer />
+
             </div>
         )
     }
