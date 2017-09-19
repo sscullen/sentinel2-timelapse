@@ -38,7 +38,9 @@ var apiLimiter = new RateLimit({
     delayMs: 0 // disabled
 });
 
-app.use("/public", express.static(path.join(__dirname + '/public')));
+let client_dirname = path.resolve(__dirname, '..');
+
+app.use(express.static(path.join(client_dirname + '/client-dist')));
 
 
 app.use(function(req, res, next) {
@@ -52,6 +54,14 @@ app.use('/listobjects', apiLimiter);
 
 app.listen(port, () => {
     console.log('Express listening on ' + port);
+});
+
+app.get('/', (req, res) => {
+
+    let client_dirname = path.resolve(__dirname, '..');
+    console.log(client_dirname);
+
+    res.sendfile(client_dirname + '/client-dist/index.html')
 });
 
 
@@ -88,7 +98,7 @@ function recursiveRequests(requestPrefix, masterTileList) {
                 }
 
             } else {
-                
+
 
                 for (let dataItem of data.Contents) {
                     //console.log('data item split', dataItem.Key.split("."))
