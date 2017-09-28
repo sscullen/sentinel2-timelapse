@@ -55,7 +55,46 @@ app.listen(port, () => {
 });
 
 
-function recursiveRequests(requestPrefix, masterTileList) {
+//var deferred = new Promise(function (resolve, reject) {
+//
+//         http.get('http://localhost:8080/meta/' + name, function(response) {
+//
+//             var responseBody = "";  // will hold the response body as it comes
+//
+//             // join the data chuncks as they come
+//             response.on('data', function(chunck) { responseBody += chunck });
+//
+//             response.on('end', function() {
+//
+//                 var jsonResponse = JSON.parse(responseBody);
+//                 list.push(name);
+//
+//                 if(jsonResponse.hasDependency) {
+//                     loadMetaOf(jsonResponse.dependency, list)
+//                         .then(function() {
+//                             resolve();
+//                         });
+//                 }
+//                 else {
+//                     resolve();
+//                 }
+//             });
+//         });
+//
+//
+//     });
+//
+//
+//
+//     // here will go any remainings of the function's code
+//
+//     return deferred;
+
+let recurseCount = 0;
+
+function getTileList(requestPrefix, tileList) {
+
+    console.log('getTileListFunction called, incoming prefix: ' + requestPrefix);
 
     var params = {
         Bucket: 'sentinel-s2-l1c',
@@ -68,47 +107,79 @@ function recursiveRequests(requestPrefix, masterTileList) {
     };
 
 
-    s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
+    let promise = new Promise((resolve, reject) => {
 
-        if (err) {
-            console.log(err);
-            console.log('something went wrong')
-        } else {
-            //console.log(data);
+        // async call should be wrapped in a new promise constructor
+        // this function should return a new promise, so that the recursive calls
+        // can resolve it with a .then call
 
-            if (data.Contents.length === 0) {
-                for (let prefix of data.CommonPrefixes) {
-                    console.log(prefix.Prefix);
+        ////// SEE RECURSIVE PROMISE STRUCTURE IN CODE AT VERY BOTTOM OF THIS FILE /////
+        s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
 
-                    let prefixSplit = prefix.Prefix.split('/')
-
-                    if (prefixSplit[prefixSplit.length - 2] != 'qi' && prefixSplit[prefixSplit.length - 2] != 'preview' && prefixSplit[prefixSplit.length - 2] != 'preview')
-                        recursiveRequests(prefix.Prefix, masterTileList);
-
-                }
-
+            if (err) {
+                console.log(err);
+                console.log('something went wrong')
             } else {
-                
+                // console.log(data);
 
-                for (let dataItem of data.Contents) {
-                    //console.log('data item split', dataItem.Key.split("."))
-                    if (dataItem.Key.split(".").pop() === 'jpg') {
+                if (data.Contents.length === 0) {
 
-                        // THis is where the magic happens
-                        // need to download the specific bands to a file
-                        // HERE
+                    console.log('data contents length is zero')
+                    for (let prefix of data.CommonPrefixes) {
+                        console.log('Prefix count ' + data.CommonPrefixes.length)
+                        console.log('Prefix: ' + prefix.Prefix);
 
-                        console.log('Found a tile preview')
-                        console.log(dataItem.Key)
-                        console.log(dataItem.ETag)
-                        masterTileList.push(dataItem.Key);
+                        let prefixSplit = prefix.Prefix.split('/')
+
+                        if (prefixSplit[prefixSplit.length - 2] != 'qi' && prefixSplit[prefixSplit.length - 2] != 'preview' && prefixSplit[prefixSplit.length - 2] != 'preview') {
+                            // recursive call should immediately be invoked by
+                            // 'then' and passed resolve so the promises above in the
+                            // recursion stack know they can resolve themselves
+                            console.log('recursing recursively..... ')
+                            recurseCount++;
+                            console.log(recurseCount)
+
+                            getTileList(prefix.Prefix, tileList).then(() => {
+
+                                console.log('executing promise in chain..... ')
+                                recurseCount--;
+                                console.log(recurseCount);
+                                console.log('split prefix length ' + prefixSplit.length);
+                                resolve();
+                            });
+                        }
                     }
-                }
 
+                } else {
+
+                    for (let dataItem of data.Contents) {
+                        //console.log('data item split', dataItem.Key.split("."))
+                        if (dataItem.Key.split(".").pop() === 'jpg') {
+
+                            // THis is where the magic happens
+                            // need to download the specific bands to a file
+
+                            console.log('Found a tile preview');
+                            console.log(dataItem.Key);
+                            console.log(dataItem.ETag);
+                            tileList.push(dataItem.Key);
+                            recurseCount--;
+                            console.log(recurseCount)
+                            resolve();
+
+                        }
+                    }
+
+                    //resolve();
+
+                }
             }
-        }
+
+        });
 
     });
+
+    return promise;
 
 }
 
@@ -130,6 +201,8 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
         console.log(parsedCoord)
 
         parsedCoordMain = parsedCoord
+
+        console.log('IS THIS SHOWING UP')
 
         // date format "2015/7/12/0/"
         //
@@ -164,11 +237,22 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
     let prefixInitial = "tiles/"+ parsedCoordMain[0] + "/" + parsedCoordMain[1] + "/" + parsedCoordMain[2] + "/";
 
-    recursiveRequests(prefixInitial, masterTileList);
+    console.log('Starting prefix: ' + prefixInitial);
 
-    console.log('recursion COMPLETE!!!!!!! --------------------------------------------------------------------')
 
-    console.log('MasterTileList: ', masterTileList);
+    let anAsyncCall = () => {
+        return promise =  getTileList(prefixInitial, masterTileList).then(function () {
+            console.log('fetched all the image prefixes');
+
+            console.log(masterTileList);
+
+            console.log('DONE, FINALLY ------------------------------------------------------------------------------------');
+
+        });
+    };
+
+    anAsyncCall();
+
 
     // var params = {
     //     Bucket: 'sentinel-s2-l1c',
@@ -274,4 +358,68 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
     // console.log(masterRequestObject)
 
 });
+
+// Recursive promise general structure
+
+
+// var http = require('http');
+//
+// function loadMetaOf(name, list) {
+//
+//     // here will go some of the function's logic
+//     //
+//     // if(jsonResponse.hasDependency) {
+//     //     loadMetaOf(jsonResponse.dependency, list)
+//     //         .then(function() {
+//     //             deferred.resolve();
+//     //         });
+//     // }
+//     // else {
+//     //     deferred.resolve();
+//     // }
+//
+//     var deferred = new Promise(function (resolve, reject) {
+//
+//         http.get('http://localhost:8080/meta/' + name, function(response) {
+//
+//             var responseBody = "";  // will hold the response body as it comes
+//
+//             // join the data chuncks as they come
+//             response.on('data', function(chunck) { responseBody += chunck });
+//
+//             response.on('end', function() {
+//
+//                 var jsonResponse = JSON.parse(responseBody);
+//                 list.push(name);
+//
+//                 if(jsonResponse.hasDependency) {
+//                     loadMetaOf(jsonResponse.dependency, list)
+//                         .then(function() {
+//                             resolve();
+//                         });
+//                 }
+//                 else {
+//                     resolve();
+//                 }
+//             });
+//         });
+//
+//
+//     });
+//
+//
+//
+//     // here will go any remainings of the function's code
+//
+//     return deferred;
+// }
+//
+// var list = [];
+// loadMetaOf('moduleA', list)
+//     .then(function() {
+//         // log the details to the user
+//         console.log('fetched all metadata for moduleA');
+//         console.log('all of the following modules need to be loaded');
+//         console.log(list);
+//     });
 
