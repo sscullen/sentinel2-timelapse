@@ -11,6 +11,8 @@ const multer = require('multer')
 const app            = express();
 const axios = require('axios');
 
+const fs = require('fs');
+
 let path = require('path');
 
 let  parseMGRS  = require('./MGRSParse')
@@ -55,133 +57,101 @@ app.listen(port, () => {
 });
 
 
-//var deferred = new Promise(function (resolve, reject) {
-//
-//         http.get('http://localhost:8080/meta/' + name, function(response) {
-//
-//             var responseBody = "";  // will hold the response body as it comes
-//
-//             // join the data chuncks as they come
-//             response.on('data', function(chunck) { responseBody += chunck });
-//
-//             response.on('end', function() {
-//
-//                 var jsonResponse = JSON.parse(responseBody);
-//                 list.push(name);
-//
-//                 if(jsonResponse.hasDependency) {
-//                     loadMetaOf(jsonResponse.dependency, list)
-//                         .then(function() {
-//                             resolve();
-//                         });
-//                 }
-//                 else {
-//                     resolve();
-//                 }
-//             });
-//         });
-//
-//
-//     });
-//
-//
-//
-//     // here will go any remainings of the function's code
-//
-//     return deferred;
+// getPrefixFragmentPromise
 
-let recurseCount = 0;
+// wrap the s3.request in a promise, the result returns a new list of common prefixes
 
-function getTileList(requestPrefix, tileList) {
+const getPrefixFragment = (prefix) => {
 
-    console.log('getTileListFunction called, incoming prefix: ' + requestPrefix);
+    return new Promise((resolve, reject) => {
+        console.log('getPrefixFragment called, incoming prefix: ' + prefix);
 
-    var params = {
-        Bucket: 'sentinel-s2-l1c',
-        Delimiter: '/',
-        EncodingType: "url",
-        FetchOwner: false,
-        MaxKeys: 100,
-        RequestPayer: "requester",
-        Prefix: requestPrefix
-    };
+        var params = {
+            Bucket: 'sentinel-s2-l1c',
+            Delimiter: '/',
+            EncodingType: "url",
+            FetchOwner: false,
+            MaxKeys: 100,
+            RequestPayer: "requester",
+            Prefix: prefix
+        };
 
-
-    let promise = new Promise((resolve, reject) => {
-
-        // async call should be wrapped in a new promise constructor
-        // this function should return a new promise, so that the recursive calls
-        // can resolve it with a .then call
-
-        ////// SEE RECURSIVE PROMISE STRUCTURE IN CODE AT VERY BOTTOM OF THIS FILE /////
         s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
 
             if (err) {
                 console.log(err);
-                console.log('something went wrong')
+                console.log('something went wrong');
+                reject(err);
             } else {
                 // console.log(data);
 
-                if (data.Contents.length === 0) {
+                if (data.Contents.length === 0 && data.CommonPrefixes.length !== 0) {
 
-                    console.log('data contents length is zero')
-                    for (let prefix of data.CommonPrefixes) {
-                        console.log('Prefix count ' + data.CommonPrefixes.length)
-                        console.log('Prefix: ' + prefix.Prefix);
+                    console.log('meaning there are further directories to explore, common prefix length is non zero');
+                    console.log(data.CommonPrefixes)
 
-                        let prefixSplit = prefix.Prefix.split('/')
-
-                        if (prefixSplit[prefixSplit.length - 2] != 'qi' && prefixSplit[prefixSplit.length - 2] != 'preview' && prefixSplit[prefixSplit.length - 2] != 'preview') {
-                            // recursive call should immediately be invoked by
-                            // 'then' and passed resolve so the promises above in the
-                            // recursion stack know they can resolve themselves
-                            console.log('recursing recursively..... ')
-                            recurseCount++;
-                            console.log(recurseCount)
-
-                            getTileList(prefix.Prefix, tileList).then(() => {
-
-                                console.log('executing promise in chain..... ')
-                                recurseCount--;
-                                console.log(recurseCount);
-                                console.log('split prefix length ' + prefixSplit.length);
-                                resolve();
-                            });
-                        }
-                    }
+                    return resolve({prefixes: data.CommonPrefixes})
 
                 } else {
+                    console.log('data contents is not empty, returning list of data');
 
-                    for (let dataItem of data.Contents) {
-                        //console.log('data item split', dataItem.Key.split("."))
-                        if (dataItem.Key.split(".").pop() === 'jpg') {
-
-                            // THis is where the magic happens
-                            // need to download the specific bands to a file
-
-                            console.log('Found a tile preview');
-                            console.log(dataItem.Key);
-                            console.log(dataItem.ETag);
-                            tileList.push(dataItem.Key);
-                            recurseCount--;
-                            console.log(recurseCount)
-                            resolve();
-
-                        }
-                    }
-
-                    //resolve();
-
+                    return resolve({data: data.Contents})
                 }
             }
 
         });
 
     });
+};
 
-    return promise;
+let masterList = [];
 
-}
+const getCompletePrefix = (prefix, masterList) => {
+
+            return new Promise((resolve, reject) => {
+
+                return getPrefixFragment(prefix).then((result) => {
+
+                    if (result.data === undefined) {
+                        console.log('prefix, no data')
+                        let promiseList = [];
+                        for (let nextPrefix of result.prefixes) {
+
+                             promiseList.push(getCompletePrefix(nextPrefix.Prefix, masterList))
+                        }
+
+                        Promise.all(promiseList).then(() => {
+                            console.log("ALL DONE THIS GROUP OF PROMISES BOSS")
+                            resolve();
+                        })
+
+
+                    } else {
+                        console.log('RESULT DATA: ', result.data)
+                        console.log('actual data recieved')
+
+                        for (let keys of result.data) {
+                            let keyComponents = keys.Key.split('/');
+
+                            if (keyComponents[keyComponents.length - 1] === 'preview.jpg') {
+                                masterList.push({key: keys.Key,
+                                                etag: keys.ETag});
+                            }
+                        }
+
+                        console.log('MASTER LIST: ', masterList);
+
+                        resolve();
+
+                    }
+
+
+                })
+
+    });
+
+};
+
 
 app.post('/listobjects', bodyParser.json(), (req, res) => {
 
@@ -231,195 +201,42 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
     // date format "2015/7/12/0/"
 
 
-    let masterTileList = [];
-
     //let year, month, day, specifier;
 
-    let prefixInitial = "tiles/"+ parsedCoordMain[0] + "/" + parsedCoordMain[1] + "/" + parsedCoordMain[2] + "/";
+    let prefixInitial = "tiles/" + parsedCoordMain[0] + "/" + parsedCoordMain[1] + "/" + parsedCoordMain[2] + "/";
 
     console.log('Starting prefix: ' + prefixInitial);
 
+    let masterList = [];
 
-    let anAsyncCall = () => {
-        return promise =  getTileList(prefixInitial, masterTileList).then(function () {
-            console.log('fetched all the image prefixes');
+    getCompletePrefix(prefixInitial, masterList).then((result) => {
+        console.log('all done boss')
+        console.log('HERE IS THE FINAL LIST OF FILES TO DOWNLOAD')
+        console.log("MASTER LIST ", masterList)
 
-            console.log(masterTileList);
+        // DOWNLOAD FILES HERE
 
-            console.log('DONE, FINALLY ------------------------------------------------------------------------------------');
+        // wrap below request in a promise and then call
+        var params = {
+            Bucket: 'sentinel-s2-l1c',
+            RequestPayer: "requester",
+            Key: masterList[0].key
+        };
+
+        s3.makeUnauthenticatedRequest('getObject', params, function (err, data) {
+
+            if (err) {
+                console.log(err);
+                console.log('something went wrong')
+            } else {
+                console.log(data);
+
+                fs.writeFile(__dirname + '/test.jpg', data.Body, () => {
+                    console.log('Wrote out the image to disk! Check it out!');
+                });
+
+            }
 
         });
-    };
-
-    anAsyncCall();
-
-
-    // var params = {
-    //     Bucket: 'sentinel-s2-l1c',
-    //     Delimiter: '/',
-    //     EncodingType: "url",
-    //     FetchOwner: false,
-    //     MaxKeys: 100,
-    //     RequestPayer: "requester",
-    //     Prefix: "tiles/"+ parsedCoordMain[0] + "/" + parsedCoordMain[1] + "/" + parsedCoordMain[2] + "/"
-    // };
-    //
-    //
-    // // disable to not get rate limited
-    //
-    // s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
-    //
-    //     if (err) {
-    //         console.log(err);
-    //         console.log('something went wrong')
-    //     } else {
-    //         console.log(data);
-    //
-    //         // YEARS REQUEST STARTS HERE
-    //
-    //         let yearsArray = []
-    //
-    //
-    //         for (let prefix of data.CommonPrefixes) {
-    //
-    //             let year = prefix.Prefix.split('/')
-    //             console.log(year)
-    //
-    //             let year1 = year[year.length - 2]
-    //
-    //             yearsArray.push(year1)
-    //         }
-    //
-    //         console.log(yearsArray)
-    //
-    //         let paramString = params.Prefix
-    //
-    //         for (let year of yearsArray) {
-    //
-    //                 params.Prefix = paramString + year + "/"
-    //
-    //                 s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
-    //                     if (err) {
-    //                         console.log(err);
-    //                         console.log('something went wrong')
-    //                     } else {
-    //                         console.log(data);
-    //
-    //                         // MONTHS REQUEST STARTS HERE
-    //
-    //                         let monthsArray = []
-    //
-    //
-    //                         for (let prefix of data.CommonPrefixes) {
-    //
-    //                             let months = prefix.Prefix.split('/')
-    //                             console.log(months)
-    //
-    //                             let month1 = months[months.length - 2]
-    //
-    //                             monthsArray.push(month1)
-    //                         }
-    //
-    //                         console.log(monthsArray)
-    //
-    //                         let paramString = params.Prefix
-    //
-    //                         for (let month of monthsArray) {
-    //
-    //                             params.Prefix = paramString + month + "/"
-    //
-    //                             s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
-    //                                 if (err) {
-    //                                     console.log(err);
-    //                                     console.log('something went wrong')
-    //                                 } else {
-    //
-    //                                     //////// DAYS REQUEST GOES HERE
-    //
-    //                                     console.log(data);
-    //
-    //
-    //                                 }
-    //                             });
-    //                         }
-    //
-    //                     }
-    //                 });
-    //
-    //         }
-    //
-    //
-    //     }
-    //
-    //
-    // });
-    //
-    // console.log('fuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuck me !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-    // console.log(masterRequestObject)
-
+    });
 });
-
-// Recursive promise general structure
-
-
-// var http = require('http');
-//
-// function loadMetaOf(name, list) {
-//
-//     // here will go some of the function's logic
-//     //
-//     // if(jsonResponse.hasDependency) {
-//     //     loadMetaOf(jsonResponse.dependency, list)
-//     //         .then(function() {
-//     //             deferred.resolve();
-//     //         });
-//     // }
-//     // else {
-//     //     deferred.resolve();
-//     // }
-//
-//     var deferred = new Promise(function (resolve, reject) {
-//
-//         http.get('http://localhost:8080/meta/' + name, function(response) {
-//
-//             var responseBody = "";  // will hold the response body as it comes
-//
-//             // join the data chuncks as they come
-//             response.on('data', function(chunck) { responseBody += chunck });
-//
-//             response.on('end', function() {
-//
-//                 var jsonResponse = JSON.parse(responseBody);
-//                 list.push(name);
-//
-//                 if(jsonResponse.hasDependency) {
-//                     loadMetaOf(jsonResponse.dependency, list)
-//                         .then(function() {
-//                             resolve();
-//                         });
-//                 }
-//                 else {
-//                     resolve();
-//                 }
-//             });
-//         });
-//
-//
-//     });
-//
-//
-//
-//     // here will go any remainings of the function's code
-//
-//     return deferred;
-// }
-//
-// var list = [];
-// loadMetaOf('moduleA', list)
-//     .then(function() {
-//         // log the details to the user
-//         console.log('fetched all metadata for moduleA');
-//         console.log('all of the following modules need to be loaded');
-//         console.log(list);
-//     });
-
