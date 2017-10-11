@@ -11,7 +11,8 @@ var config = {
     output: {
         path: DIST_DIR + "/app",
         filename: "bundle.js",
-        publicPath: "/app/"
+        publicPath: "/",
+        //contentBase: DIST_DIR + "/static",
     },
     module: {
         rules: [
@@ -41,6 +42,19 @@ var config = {
             {
                 test: /\.scss$/, loaders: [ 'style-loader', 'css-loader', 'sass-loader' ]
             },
+            {
+                test: /\.(png|jpg|gif)$/,
+                use: [
+                    {
+                        loader: 'file-loader',
+                        options: {
+                            publicPath: './',
+                            outputPath: 'images/'
+                        },
+
+                    }
+                ]
+            }
         ]
     },
     externals: {

@@ -156,7 +156,6 @@ const getCompletePrefix = (prefix, masterList) => {
 app.post('/listobjects', bodyParser.json(), (req, res) => {
 
     console.log('Received a post request at list objects')
-    res.send('thanks!')
 
     let coordList = req.body.coords;
 
@@ -214,6 +213,10 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
         console.log('HERE IS THE FINAL LIST OF FILES TO DOWNLOAD')
         console.log("MASTER LIST ", masterList)
 
+
+
+        let returnDataObject = {};
+
         // DOWNLOAD FILES HERE
 
         // wrap below request in a promise and then call
@@ -228,11 +231,76 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
             if (err) {
                 console.log(err);
                 console.log('something went wrong')
+                res.send('something went wrong')
             } else {
                 console.log(data);
 
-                fs.writeFile(__dirname + '/test.jpg', data.Body, () => {
+                let fileName = masterList[0].key.replace(/\//g, '_');
+
+                fs.writeFile(__dirname + '/' + fileName, data.Body, () => {
                     console.log('Wrote out the image to disk! Check it out!');
+
+
+                    // send individual file
+
+                    //var options = {
+                        //     root: __dirname,
+                        //     dotfiles: 'deny',
+                        //     headers: {
+                        //         'x-timestamp': Date.now(),
+                        //         'x-sent': true
+                        //     }
+                        // };
+
+
+                        // res.sendFile(fileName, options, function (err) {
+                    //     if (err) {
+                    //         console.log(err)
+                    //     } else {
+                    //         console.log('Sent file: ', fileName)
+                    //         console.log('sent back preview image for ', fileName)
+                    //     }
+                    // });
+
+
+
+                });
+
+                returnDataObject.imageBuffer = data.Body;
+
+                // wrap below request in a promise and then call
+                var params = {
+                    Bucket: 'sentinel-s2-l1c',
+                    RequestPayer: "requester",
+                    Key: masterList[0].key.replace('preview.jpg', 'tileInfo.json')
+                };
+
+                s3.makeUnauthenticatedRequest('getObject', params, function (err, data) {
+
+                    if (err) {
+                        console.log(err);
+                        console.log('something went wrong')
+                        res.send('something went wrong')
+                    } else {
+                        console.log(data);
+
+                        console.log('got tile info.json')
+                        let jsonObject = JSON.parse(data.Body.toString('utf8'));
+
+                        console.log(jsonObject.tileGeometry.coordinates);
+
+                        returnDataObject.tileCoords = jsonObject.tileGeometry.coordinates;
+                        returnDataObject.tileProj = jsonObject.tileGeometry.crs.properties.name;
+
+                        // res.set('Content-Type', 'image/jpeg');
+                        // res.send(returnDataObject.imageBuffer);
+
+                        res.write(returnDataObject.imageBuffer, 'binary')
+                        res.end(returnDataObject.imageBuffer, 'binary')
+
+
+                    }
+
                 });
 
             }
