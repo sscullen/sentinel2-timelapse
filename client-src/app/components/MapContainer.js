@@ -69,7 +69,7 @@ export default class MapContainer extends React.Component {
 
         let that = this;
 
-        axios.post(config.server_address + '/listobjects', postObject).then((response) => {
+        axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
 
             console.log(response);
 
@@ -95,19 +95,53 @@ export default class MapContainer extends React.Component {
                //let fileReader = new FileReader();
                 //console.log(response.data)
 
-                var arrayBufferView = new Uint8Array( response.data );
+                // create a blob from the image buffer
+                // after slicing off the json portion and converting to javascript object
 
-                console.log(arrayBufferView)
+                let sizeArray1 = response.data.slice(0,4);
+                let sizeArray2 = response.data.slice(4,8);
+                let dv = new DataView(sizeArray1, 0);
 
-                let blob = new Blob(arrayBufferView);
-
-                var video = document.getElementById('sampleimage');
-
+                console.log(sizeArray1);
+                console.log(dv.getInt32())
 
 
-                var url = URL.createObjectURL(blob);
+                let imageOffset = dv.getInt32();
 
-                video.src = url;
+                dv = new DataView(sizeArray2, 0);
+
+                console.log(sizeArray2);
+                console.log(dv.getInt32())
+
+                let jsonOffset = dv.getInt32();
+
+                let jsonArray = response.data.slice(8 + imageOffset);
+
+                let imageArray = response.data.slice(8 ,8 + imageOffset);
+
+
+
+                let blob = new Blob([imageArray], {type: 'image/jpeg'});
+
+                let objUrl = window.URL.createObjectURL(blob);
+
+                that.setState({
+                    imageSrc: objUrl
+                });
+
+                var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
+
+                console.log(JSON.parse(decodedString));
+                console.log(jsonArray)
+
+                //
+                // let blob = new Blob([response.data], {type: 'image/jpeg'});
+                //
+                // let objUrl = window.URL.createObjectURL(blob);
+                //
+                // that.setState({
+                //     imageSrc: objUrl
+                // });
 
                 //  var imageBounds = [];
                 //
@@ -135,23 +169,6 @@ export default class MapContainer extends React.Component {
                 // console.log(imageBoundsLatLong);
                 // console.log(url)
 
-                this.setState({
-                    imageSrc: url
-                });
-
-                var a = document.createElement("a");
-                document.body.appendChild(a);
-                a.style = "display: none";
-
-                    a.href = url;
-                    a.download = 'name';
-                    a.click();
-
-                    window.URL.revokeObjectURL(url);
-                //
-                // L.imageOverlay(url, imageBoundsLatLong).addTo(that.mainMap);
-
-                console.log(this.state.imageSrc);
 
             } else {
 
@@ -167,7 +184,6 @@ export default class MapContainer extends React.Component {
             });
 
     }
-
 
 
     _onEditPath(e) {

@@ -94,6 +94,7 @@ const getPrefixFragment = (prefix) => {
 
                 } else {
                     console.log('data contents is not empty, returning list of data');
+                    console.log('data contents is ', data.Contents);
 
                     return resolve({data: data.Contents})
                 }
@@ -152,6 +153,14 @@ const getCompletePrefix = (prefix, masterList) => {
 
 };
 
+function toBytesInt32 (num) {
+    arr = new ArrayBuffer(4); // an Int32 takes 4 bytes
+    view = new DataView(arr);
+    view.setUint32(0, num, false); // byteOffset = 0; litteEndian = false
+
+    console.log(view.buffer)
+    return Buffer.from(view.buffer);
+}
 
 app.post('/listobjects', bodyParser.json(), (req, res) => {
 
@@ -268,6 +277,8 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
                 returnDataObject.imageBuffer = data.Body;
 
+                console.log(returnDataObject.imageBuffer);
+
                 // wrap below request in a promise and then call
                 var params = {
                     Bucket: 'sentinel-s2-l1c',
@@ -285,19 +296,25 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
                         console.log(data);
 
                         console.log('got tile info.json')
-                        let jsonObject = JSON.parse(data.Body.toString('utf8'));
 
-                        console.log(jsonObject.tileGeometry.coordinates);
+                        //let jsonObject = JSON.parse(data.Body.toString('utf8'));
+                        //console.log(jsonObject);
 
-                        returnDataObject.tileCoords = jsonObject.tileGeometry.coordinates;
-                        returnDataObject.tileProj = jsonObject.tileGeometry.crs.properties.name;
+                        // log the size of the preview.jpg buffer
 
-                        // res.set('Content-Type', 'image/jpeg');
-                        // res.send(returnDataObject.imageBuffer);
+                        var sizeBuffer = Buffer.concat([toBytesInt32(returnDataObject.imageBuffer.length), toBytesInt32(data.Body.length)], 8);
 
-                        res.write(returnDataObject.imageBuffer, 'binary')
-                        res.end(returnDataObject.imageBuffer, 'binary')
+                        console.log('sizeBuffer size', sizeBuffer.length, sizeBuffer)
+                        console.log('preview.jpg buffer size', returnDataObject.imageBuffer.length);
+                        console.log('tileInfoJson buffer size', data.Body.length)
 
+                        console.log(JSON.parse(data.Body))
+
+
+                        const returnBuffer = Buffer.concat([sizeBuffer, returnDataObject.imageBuffer, data.Body],
+                                                sizeBuffer.length + returnDataObject.imageBuffer.length + data.Body.length)
+
+                        res.send(returnBuffer);
 
                     }
 
