@@ -36,7 +36,7 @@ app.set('view engine', 'ejs')
 
 var apiLimiter = new RateLimit({
     windowMs: 15*60*1000, // 15 minutes
-    max: 10,
+    max: 20, // remember that CORS has preflight request, so each request counts for 2 requests, just double the limit for what you want it
     delayMs: 0 // disabled
 });
 
@@ -92,11 +92,15 @@ const getPrefixFragment = (prefix) => {
 
                     return resolve({prefixes: data.CommonPrefixes})
 
-                } else {
+                } else if (data.Contents.length !== 0) {
                     console.log('data contents is not empty, returning list of data');
                     console.log('data contents is ', data.Contents);
 
                     return resolve({data: data.Contents})
+                } else {
+                    console.log('could not find the tile specified');
+
+                    return reject('could not find tile specified')
                 }
             }
 
@@ -322,6 +326,9 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
             }
 
+        }, (err) => {
+             console.log('ERROR: ' + err);
+             res.status(404);
         });
     });
 });

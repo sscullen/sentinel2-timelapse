@@ -36,7 +36,8 @@ export default class MapContainer extends React.Component {
         this._onDeleted = this._onDeleted.bind(this);
 
         this.state = {
-            imageSrc: "/app/static/img.jpg"
+            imageSrc: "/app/static/img.jpg",
+            currentTileInfo: {}
         };
 
 
@@ -149,14 +150,15 @@ export default class MapContainer extends React.Component {
                  imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][3]);
                  imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][1]);
 
+                that.setState({currentTileInfo: jsonMetadata});
 
                  // convert to lat long from UTM zone
                 let imageBoundsLatLong = [];
 
-                var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: 30, band: 'U'});
+                var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
                 var coord = item.latLng();
 
-                var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: 30, band: 'U'});
+                var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
                 var coord2 = item2.latLng();
 
 
@@ -253,7 +255,58 @@ export default class MapContainer extends React.Component {
                     </Marker>
                 </Map>
 
+                {/*{path: "tiles/30/U/YC/2015/8/8/0", timestamp: "2015-08-08T11:05:33.511Z", utmZone: 30, latitudeBand: "U", gridSquare: "YC", …}*/}
+                {/*cloudyPixelPercentage*/}
+                {/*:*/}
+                {/*8.35*/}
+                {/*dataCoveragePercentage*/}
+                {/*:*/}
+                {/*100*/}
+                {/*datastrip*/}
+                {/*:*/}
+                {/*{id: "S2A_OPER_MSI_L1C_DS_EPA__20160905T121355_S20150808T110533_N02.04", path: "products/2015/8/8/S2A_OPER_PRD_MSIL1C_PDMC_2016090…R094_V20150808T110036_20150808T110533/datastrip/0"}*/}
+                {/*gridSquare*/}
+                {/*:*/}
+                {/*"YC"*/}
+                {/*latitudeBand*/}
+                {/*:*/}
+                {/*"U"*/}
+                {/*path*/}
+                {/*:*/}
+                {/*"tiles/30/U/YC/2015/8/8/0"*/}
+                {/*productName*/}
+                {/*:*/}
+                {/*"S2A_OPER_PRD_MSIL1C_PDMC_20160907T051210_R094_V20150808T110036_20150808T110533"*/}
+                {/*productPath*/}
+                {/*:*/}
+                {/*"products/2015/8/8/S2A_OPER_PRD_MSIL1C_PDMC_20160907T051210_R094_V20150808T110036_20150808T110533"*/}
+                {/*tileDataGeometry*/}
+                {/*:*/}
+                {/*{type: "Polygon", crs: {…}, coordinates: Array(1)}*/}
+                {/*tileGeometry*/}
+                {/*:*/}
+                {/*{type: "Polygon", crs: {…}, coordinates: Array(1)}*/}
+                {/*tileOrigin*/}
+                {/*:*/}
+                {/*{type: "Point", crs: {…}, coordinates: Array(2)}*/}
+                {/*timestamp*/}
+                {/*:*/}
+                {/*"2015-08-08T11:05:33.511Z"*/}
+                {/*utmZone*/}
+                {/*:*/}
+                {/*30*/}
+
                 <img id="sampleimage" src={this.state.imageSrc}></img>
+                <div>
+                    <p>Tile Info</p>
+                    <p>Date: {this.state.currentTileInfo.timestamp}</p>
+                    <p>Tile: {this.state.currentTileInfo.path}</p>
+                    <p>Cloudy Pixel Percent: {this.state.currentTileInfo.cloudyPixelPercentage}</p>
+                    <p>Data coverage percent: {this.state.currentTileInfo.dataCoveragePercentage}</p>
+
+
+
+                </div>
             </div>
         );
     }
