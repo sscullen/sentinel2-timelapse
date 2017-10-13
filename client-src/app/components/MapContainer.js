@@ -132,7 +132,8 @@ export default class MapContainer extends React.Component {
                 var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
 
                 console.log(JSON.parse(decodedString));
-                console.log(jsonArray)
+
+                let jsonMetadata = JSON.parse(decodedString);
 
                 //
                 // let blob = new Blob([response.data], {type: 'image/jpeg'});
@@ -143,31 +144,31 @@ export default class MapContainer extends React.Component {
                 //     imageSrc: objUrl
                 // });
 
-                //  var imageBounds = [];
-                //
-                //  imageBounds.push(response.data.body.tileCoords[0][3]);
-                //  imageBounds.push(response.data.body.tileCoords[0][1]);
-                //
-                //
-                //  // convert to lat long from UTM zone
-                // let imageBoundsLatLong = [];
-                //
-                // var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: 30, southHemi: false});
-                // var coord = item.latLng();
-                //
-                // var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: 30, southHemi: false});
-                // var coord2 = item2.latLng();
+                 var imageBounds = [];
+
+                 imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][3]);
+                 imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][1]);
 
 
-                // console.log('coords, ', coord, coord2);
-                // // let latLong1 = utmConverter.toLatLong(imageBounds[0][0], imageBounds[0][1], 30, 'northern');
-                // // let latLong2 = utmConverter.toLatLong(imageBounds[1][0], imageBounds[1][1], 30, 'northern');
-                //
-                // imageBoundsLatLong.push([coord.lat, coord.lng]);
-                // imageBoundsLatLong.push([coord2.lat, coord2.lng]);
-                //
-                // console.log(imageBoundsLatLong);
-                // console.log(url)
+                 // convert to lat long from UTM zone
+                let imageBoundsLatLong = [];
+
+                var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: 30, band: 'U'});
+                var coord = item.latLng();
+
+                var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: 30, band: 'U'});
+                var coord2 = item2.latLng();
+
+
+                console.log('coords, ', coord, coord2);
+
+                imageBoundsLatLong.push([coord.lat, coord.lng]);
+                imageBoundsLatLong.push([coord2.lat, coord2.lng]);
+
+                console.log(imageBoundsLatLong);
+                var imageUrl = this.state.imageSrc;
+
+                L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
 
 
             } else {
