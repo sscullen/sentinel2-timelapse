@@ -35,9 +35,12 @@ export default class MapContainer extends React.Component {
 
         this._onDeleted = this._onDeleted.bind(this);
 
+        this.toggleAmazonAPI = this.toggleAmazonAPI.bind(this);
+
         this.state = {
             imageSrc: "/app/static/img.jpg",
-            currentTileInfo: {}
+            currentTileInfo: {},
+            amazonAPI: true
         };
 
 
@@ -45,6 +48,12 @@ export default class MapContainer extends React.Component {
 
     componentDidMount() {
         this.mainMap = this.refs.map.leafletElement
+    }
+
+    toggleAmazonAPI() {
+        this.setState({
+            amazonAPI: !this.state.amazonAPI
+        })
     }
 
     getBoundsInMGRS(inputCoords) {
@@ -70,121 +79,192 @@ export default class MapContainer extends React.Component {
 
         let that = this;
 
-        axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
+        if (this.state.amazonAPI) {
+            axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
 
-            console.log(response);
+                console.log(response);
 
-            //reset captcha after submission result (SOMEHOW)
-            if (response.status === 200) {
+                //reset captcha after submission result (SOMEHOW)
+                if (response.status === 200) {
 
-                console.log('it was a success')
+                    console.log('it was a success')
 
-                // how to add an image raster to the map using the mainMap reference
+                    // how to add an image raster to the map using the mainMap reference
 
-                // Check for the various File API support.
-                if (window.File && window.FileReader && window.FileList && window.Blob) {
-                    // Great success! All the File APIs are supported.
-                    console.log('The File APIs are fully supported')
+                    // Check for the various File API support.
+                    if (window.File && window.FileReader && window.FileList && window.Blob) {
+                        // Great success! All the File APIs are supported.
+                        console.log('The File APIs are fully supported')
+                    } else {
+                        console.log('The File APIs are not fully supported in this browser.');
+                    }
+
+                    // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
+                    //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
+                    //     L.imageOverlay(imageUrl, imageBounds).addTo(that.mainMap);
+                    //
+                    //let fileReader = new FileReader();
+                    //console.log(response.data)
+
+                    // create a blob from the image buffer
+                    // after slicing off the json portion and converting to javascript object
+
+                    let sizeArray1 = response.data.slice(0,4);
+                    let sizeArray2 = response.data.slice(4,8);
+                    let dv = new DataView(sizeArray1, 0);
+
+                    console.log(sizeArray1);
+                    console.log(dv.getInt32())
+
+
+                    let imageOffset = dv.getInt32();
+
+                    dv = new DataView(sizeArray2, 0);
+
+                    console.log(sizeArray2);
+                    console.log(dv.getInt32())
+
+                    let jsonOffset = dv.getInt32();
+
+                    let jsonArray = response.data.slice(8 + imageOffset);
+
+                    let imageArray = response.data.slice(8 ,8 + imageOffset);
+
+
+
+                    let blob = new Blob([imageArray], {type: 'image/jpeg'});
+
+                    let objUrl = window.URL.createObjectURL(blob);
+
+                    that.setState({
+                        imageSrc: objUrl
+                    });
+
+                    var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
+
+                    console.log(JSON.parse(decodedString));
+
+                    let jsonMetadata = JSON.parse(decodedString);
+
+                    //
+                    // let blob = new Blob([response.data], {type: 'image/jpeg'});
+                    //
+                    // let objUrl = window.URL.createObjectURL(blob);
+                    //
+                    // that.setState({
+                    //     imageSrc: objUrl
+                    // });
+
+                    var imageBounds = [];
+
+                    imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][3]);
+                    imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][1]);
+
+                    that.setState({currentTileInfo: jsonMetadata});
+
+                    // convert to lat long from UTM zone
+                    let imageBoundsLatLong = [];
+
+                    var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
+                    var coord = item.latLng();
+
+                    var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
+                    var coord2 = item2.latLng();
+
+
+                    console.log('coords, ', coord, coord2);
+
+                    imageBoundsLatLong.push([coord.lat, coord.lng]);
+                    imageBoundsLatLong.push([coord2.lat, coord2.lng]);
+
+                    console.log(imageBoundsLatLong);
+                    var imageUrl = this.state.imageSrc;
+
+                    L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
+
+
                 } else {
-                    console.log('The File APIs are not fully supported in this browser.');
+
+                    console.log('it was not a success')
                 }
 
-                // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
-                //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
-                //     L.imageOverlay(imageUrl, imageBounds).addTo(that.mainMap);
-                //
-               //let fileReader = new FileReader();
-                //console.log(response.data)
-
-                // create a blob from the image buffer
-                // after slicing off the json portion and converting to javascript object
-
-                let sizeArray1 = response.data.slice(0,4);
-                let sizeArray2 = response.data.slice(4,8);
-                let dv = new DataView(sizeArray1, 0);
-
-                console.log(sizeArray1);
-                console.log(dv.getInt32())
 
 
-                let imageOffset = dv.getInt32();
-
-                dv = new DataView(sizeArray2, 0);
-
-                console.log(sizeArray2);
-                console.log(dv.getInt32())
-
-                let jsonOffset = dv.getInt32();
-
-                let jsonArray = response.data.slice(8 + imageOffset);
-
-                let imageArray = response.data.slice(8 ,8 + imageOffset);
-
-
-
-                let blob = new Blob([imageArray], {type: 'image/jpeg'});
-
-                let objUrl = window.URL.createObjectURL(blob);
-
-                that.setState({
-                    imageSrc: objUrl
+            })
+                .catch(function (error) {
+                    console.log(error);
+                    console.log('something went wrong')
                 });
 
-                var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
-
-                console.log(JSON.parse(decodedString));
-
-                let jsonMetadata = JSON.parse(decodedString);
-
-                //
-                // let blob = new Blob([response.data], {type: 'image/jpeg'});
-                //
-                // let objUrl = window.URL.createObjectURL(blob);
-                //
-                // that.setState({
-                //     imageSrc: objUrl
-                // });
-
-                 var imageBounds = [];
-
-                 imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][3]);
-                 imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][1]);
-
-                that.setState({currentTileInfo: jsonMetadata});
-
-                 // convert to lat long from UTM zone
-                let imageBoundsLatLong = [];
-
-                var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                var coord = item.latLng();
-
-                var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                var coord2 = item2.latLng();
+        } else {
 
 
-                console.log('coords, ', coord, coord2);
+            console.log('not using the AmazonAPI')
 
-                imageBoundsLatLong.push([coord.lat, coord.lng]);
-                imageBoundsLatLong.push([coord2.lat, coord2.lng]);
+            let queryStr = 'q=';
+            for (let coord of inputCoords) {
 
-                console.log(imageBoundsLatLong);
-                var imageUrl = this.state.imageSrc;
-
-                L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
-
-
-            } else {
-
-                console.log('it was not a success')
+                console.log(coord)
+                console.log(coord.lat, coord.lng)
+                queryStr += coord.lat + ',' + coord.lng + '_';
             }
 
+            queryStr += inputCoords[0].lat + ',' + inputCoords[0].lng; // complete the polygon
+
+            console.log('query string is :', queryStr)
+
+            // using the esa open data hub API instead of the amazon
+            axios.get(config.server_address + '/openaccessdatahub?' + queryStr, {responseType: 'json'}).then((response) => {
+
+                console.log(response);
+
+                //reset captcha after submission result (SOMEHOW)
+                if (response.status === 200) {
+
+                    console.log('it was a success')
+
+                    // how to add an image raster to the map using the mainMap reference
+
+                    // Check for the various File API support.
+                    if (window.File && window.FileReader && window.FileList && window.Blob) {
+                        // Great success! All the File APIs are supported.
+                        console.log('The File APIs are fully supported')
+                    } else {
+                        console.log('The File APIs are not fully supported in this browser.');
+                    }
+
+                    // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
+                    //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
+                    //     L.imageOverlay(imageUrl, imageBounds).addTo(that.mainMap);
+                    //
+                    //let fileReader = new FileReader();
+                    //console.log(response.data)
 
 
-        })
-            .catch(function (error) {
-                console.log(error);
-                console.log('something went wrong')
-            });
+                    //
+                    // imageBoundsLatLong.push([coord.lat, coord.lng]);
+                    // imageBoundsLatLong.push([coord2.lat, coord2.lng]);
+                    //
+                    // console.log(imageBoundsLatLong);
+                    // var imageUrl = this.state.imageSrc;
+                    //
+                    // L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
+
+
+                } else {
+
+                    console.log('it was not a success')
+                }
+
+
+
+            }).catch(function (error) {
+                    console.log(error);
+                    console.log('something went wrong')
+                });
+        }
+
+
 
     }
 
@@ -302,10 +382,8 @@ export default class MapContainer extends React.Component {
                     <p>Date: {this.state.currentTileInfo.timestamp}</p>
                     <p>Tile: {this.state.currentTileInfo.path}</p>
                     <p>Cloudy Pixel Percent: {this.state.currentTileInfo.cloudyPixelPercentage}</p>
-                    <p>Data coverage percent: {this.state.currentTileInfo.dataCoveragePercentage}</p>
-
-
-
+                    <input id="amazonapitoggle" type='checkbox' defaultChecked={this.state.amazonAPI} onChange={this.toggleAmazonAPI} />
+                    <label htmlFor="amazonapitoggle">Use Amazon S3 API</label>
                 </div>
             </div>
         );

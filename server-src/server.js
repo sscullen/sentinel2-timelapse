@@ -12,6 +12,8 @@ const app            = express();
 const axios = require('axios');
 
 const fs = require('fs');
+const https = require('https');
+
 
 let path = require('path');
 
@@ -51,10 +53,49 @@ app.use(function(req, res, next) {
 
 app.use('/listobjects', apiLimiter);
 
+app.use('/openaccessdatahub', apiLimiter);
+
 
 app.listen(port, () => {
     console.log('Express listening on ' + port);
 });
+
+
+// connect to sentinel 2 data hub API
+
+// important parameters
+// -m <mission name>		: Sentinel mission name. Possible options are: Sentinel-1, Sentinel-2, Sentinel-3);"
+// echo ""
+// echo "   -i <instrument name>		: instrument name. Possible options are: SAR, MSI, OLCI, SLSTR, SRAL);"
+
+// //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
+// var options = {
+//     host: 'scihub.copernicus.eu',
+//     path: '/dhus/search?q=' + querystring.escape('producttype:S2MSI1C AND footprint:"Intersects(POLYGON((-4.53 29.85, 26.75 29.85, 26.75 46.80,-4.53 46.80,-4.53 29.85)))"'),
+//     auth: 'ss.cullen:M0n796St3Ruleth4'
+// };
+//
+// console.log(querystring.escape('/dhus/search?q=producttype:MSI AND platformname:Sentinel-2 AND footprint:"Intersects(POLYGON((-4.53 29.85, 26.75 29.85, 26.75 46.80,-4.53 46.80,-4.53 29.85)))"'))
+//
+// callback = function(response) {
+//     var str = '';
+//
+//     console.log(response.headers)
+//     console.log(response.statusCode)
+//
+//     //another chunk of data has been recieved, so append it to `str`
+//     response.on('data', function (chunk) {
+//         str += chunk;
+//     });
+//
+//     //the whole response has been recieved, so we just print it out here
+//     response.on('end', function () {
+//         console.log(str);
+//     });
+// }
+//
+// https.request(options, callback).end();
+
 
 
 // getPrefixFragmentPromise
@@ -165,6 +206,65 @@ function toBytesInt32 (num) {
     console.log(view.buffer)
     return Buffer.from(view.buffer);
 }
+
+app.get('/openaccessdatahub', (req, res) => {
+
+    console.log('recieved a request on /openaccessdatahub');
+
+    console.log(req);
+
+    let coords = req.query.q.split('_')
+
+    let polygonString = '';
+
+    let x = coords.length;
+    let counter = 0;
+
+    for (let coord of coords) {
+        let coordSplit = coord.split(',')
+
+        polygonString += parseFloat(coordSplit[0]).toFixed(5) + ' ' + parseFloat(coordSplit[1]).toFixed(5);
+        if (counter !== (x - 1)) {
+            polygonString += ', '
+        }
+        counter++;
+    }
+
+    //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
+    var options = {
+        host: 'scihub.copernicus.eu',
+        path: '/dhus/search?q=' + querystring.escape('platformname:Sentinel-2 AND footprint:"Intersects(POLYGON((' + polygonString + ')))"'),
+        auth: 'ss.cullen:M0n796St3Ruleth4'
+    };
+
+    console.log(options.path);
+
+    callback = function(response) {
+        var str = '';
+
+        console.log(response.headers)
+        console.log(response.statusCode)
+
+        //another chunk of data has been recieved, so append it to `str`
+        response.on('data', function (chunk) {
+            str += chunk;
+        });
+
+        //the whole response has been recieved, so we just print it out here
+        response.on('end', function () {
+            console.log(str);
+        });
+    }
+
+    https.request(options, callback).end();
+
+
+
+
+});
+
+
+
 
 app.post('/listobjects', bodyParser.json(), (req, res) => {
 
