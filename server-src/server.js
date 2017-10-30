@@ -14,6 +14,16 @@ const axios = require('axios');
 const fs = require('fs');
 const https = require('https');
 
+const xml2js = require('xml2js');
+
+const parseString = xml2js.parseString;
+//
+// var xml = "<root>Hello xml2js!</root>"
+//
+// parseString(xml, function (err, result) {
+//     console.dir(result);
+// });
+
 
 let path = require('path');
 
@@ -223,21 +233,26 @@ app.get('/openaccessdatahub', (req, res) => {
     for (let coord of coords) {
         let coordSplit = coord.split(',')
 
-        polygonString += parseFloat(coordSplit[0]).toFixed(5) + ' ' + parseFloat(coordSplit[1]).toFixed(5);
+        polygonString += parseFloat(coordSplit[1]).toFixed(4) + ' ' + parseFloat(coordSplit[0]).toFixed(4);
         if (counter !== (x - 1)) {
-            polygonString += ', '
+            polygonString += ','
         }
         counter++;
     }
 
+    console.log(polygonString)
+
     //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
     var options = {
         host: 'scihub.copernicus.eu',
-        path: '/dhus/search?q=' + querystring.escape('platformname:Sentinel-2 AND footprint:"Intersects(POLYGON((' + polygonString + ')))"'),
+        path: '/dhus/search?format=json&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
         auth: 'ss.cullen:M0n796St3Ruleth4'
     };
 
     console.log(options.path);
+
+    // TODO: wrap the https request in a promise structure
+
 
     callback = function(response) {
         var str = '';
@@ -247,14 +262,118 @@ app.get('/openaccessdatahub', (req, res) => {
 
         //another chunk of data has been recieved, so append it to `str`
         response.on('data', function (chunk) {
+            console.log('chunk recieved ----------------')
+
             str += chunk;
         });
 
         //the whole response has been recieved, so we just print it out here
         response.on('end', function () {
+            console.log('everything has been received! --------------------------------------');
+
             console.log(str);
+
+            // only required if using XML format
+
+            // parseString(str, function (err, result) {
+            //     console.log(result);
+            //
+            //     console.log(result.feed.entry)
+            //
+            //     for (let entry of result.feed.entry) {
+            //         console.log(entry);
+            //     }
+            // });
+
+            let jsonResponseObject = JSON.parse(str)
+
+            console.log(jsonResponseObject)
+
+            for (let entry of jsonResponseObject.feed.entry) {
+                console.log(entry);
+            }
+
+            // grab the first entry UUID and try to download the preview image
+
+            let entry1id = jsonResponseObject.feed.entry[0].id;
+            let entry1filename = jsonResponseObject.feed.entry[0].str.find((obj) => {
+
+                return obj.name === 'filename';
+
+            }).content;
+
+            let qString = '/dhus/odata/' + querystring.escape('v1/Products(' + entry1id + ')/Nodes(' + entry1filename + ')/Nodes(\'preview\')/Nodes(\'quick-look.png\')/$value');
+            console.log(qString)
+
+            // temp test string
+            //let qString = '/dhus/odata/v1/Products(\'8b6a87c7-2cdf-4381-9fca-8f458617cc7f\')/$value'
+
+            // //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
+            // var options = {
+            //     host: 'scihub.copernicus.eu',
+            //     path: qString,
+            //     auth: 'ss.cullen:M0n796St3Ruleth4'
+            // };
+            //
+            //
+            // callback = function(response) {
+            //     //var str = '';
+            //
+            //     // use array for binary data
+            //     let data = [];
+            //
+            //     console.log(response.headers)
+            //     console.log(response.statusCode)
+            //
+            //     //another chunk of data has been recieved, so append it to `str`
+            //     response.on('data', function (chunk) {
+            //         console.log('chunk recieved ----------------')
+            //
+            //         data.push(chunk);
+            //
+            //         //str += chunk;
+            //     });
+            //
+            //     //the whole response has been recieved, so we just print it out here
+            //     response.on('end', function () {
+            //         console.log('everything has been received! --------------------------------------');
+            //         let buffer = Buffer.concat(data);
+            //         //
+            //         console.log(buffer.toString('base64'));
+            //
+            //         //console.log(data);
+            //
+            //         //console.log(str)
+            //
+            //         // only required if using XML format
+            //
+            //         // parseString(str, function (err, result) {
+            //         //     console.log(result);
+            //         //
+            //         //     console.log(result.feed.entry)
+            //         //
+            //         //     for (let entry of result.feed.entry) {
+            //         //         console.log(entry);
+            //         //     }
+            //         // });
+            //
+            //         // let jsonResponseObject = JSON.parse(str)
+            //         //
+            //         // console.log(jsonResponseObject)
+            //         // for (let entry of jsonResponseObject.feed.entry) {
+            //         //     console.log(entry);
+            //         // }
+            //
+            //
+            //     });
+            // };
+            //
+            // https.request(options, callback).end();
+
+
+
         });
-    }
+    };
 
     https.request(options, callback).end();
 
