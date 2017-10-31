@@ -382,9 +382,6 @@ app.get('/openaccessdatahub', (req, res) => {
 
 });
 
-
-
-
 app.post('/listobjects', bodyParser.json(), (req, res) => {
 
     console.log('Received a post request at list objects')

@@ -99,16 +99,6 @@ export default class MapContainer extends React.Component {
                         console.log('The File APIs are not fully supported in this browser.');
                     }
 
-                    // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
-                    //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
-                    //     L.imageOverlay(imageUrl, imageBounds).addTo(that.mainMap);
-                    //
-                    //let fileReader = new FileReader();
-                    //console.log(response.data)
-
-                    // create a blob from the image buffer
-                    // after slicing off the json portion and converting to javascript object
-
                     let sizeArray1 = response.data.slice(0,4);
                     let sizeArray2 = response.data.slice(4,8);
                     let dv = new DataView(sizeArray1, 0);
