@@ -16,7 +16,7 @@ $btn-font-weight:bold;
 .grid-container {
   display: grid;
 
-  grid-template-columns: 3fr 1fr;
+  grid-template-columns: 2fr 1fr;
   grid-gap: 30px;
 
 }
@@ -35,6 +35,11 @@ $btn-font-weight:bold;
 .resultList {
   grid-column: span 1;
 
+}
+
+#sampleimage {
+  grid-column: span 1;
+  width: 100%;
 }
 
 //@import '~bootstrap/scss/bootstrap.scss';
