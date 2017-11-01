@@ -208,6 +208,7 @@ const getCompletePrefix = (prefix, masterList) => {
 
 };
 
+
 function toBytesInt32 (num) {
     arr = new ArrayBuffer(4); // an Int32 takes 4 bytes
     view = new DataView(arr);
@@ -245,14 +246,13 @@ app.get('/openaccessdatahub', (req, res) => {
     //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
     var options = {
         host: 'scihub.copernicus.eu',
-        path: '/dhus/search?format=json&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
+        path: '/dhus/search?format=json&rows=100&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
         auth: 'ss.cullen:M0n796St3Ruleth4'
     };
 
     console.log(options.path);
 
     // TODO: wrap the https request in a promise structure
-
 
     callback = function(response) {
         var str = '';
@@ -273,7 +273,7 @@ app.get('/openaccessdatahub', (req, res) => {
 
             console.log(str);
 
-            // only required if using XML format
+            // NOTE: only required if using XML format
 
             // parseString(str, function (err, result) {
             //     console.log(result);
@@ -289,9 +289,9 @@ app.get('/openaccessdatahub', (req, res) => {
 
             console.log(jsonResponseObject)
 
-            for (let entry of jsonResponseObject.feed.entry) {
-                console.log(entry);
-            }
+            // for (let entry of jsonResponseObject.feed.entry) {
+            //     console.log(entry);
+            // }
 
             // grab the first entry UUID and try to download the preview image
 
@@ -304,6 +304,15 @@ app.get('/openaccessdatahub', (req, res) => {
 
             let qString = '/dhus/odata/' + querystring.escape('v1/Products(' + entry1id + ')/Nodes(' + entry1filename + ')/Nodes(\'preview\')/Nodes(\'quick-look.png\')/$value');
             console.log(qString)
+
+            // total response entities
+            let totalItems = jsonResponseObject.feed['opensearch:totalResults'];
+
+            console.log('Total data items: ', totalItems)
+
+            if (totalItems > 100) {
+                console.log('Total data items exceeds 100, need to re-query the server');
+            }
 
             // temp test string
             //let qString = '/dhus/odata/v1/Products(\'8b6a87c7-2cdf-4381-9fca-8f458617cc7f\')/$value'

@@ -61,8 +61,10 @@ export default class MapContainer extends React.Component {
     handleZoomChange(event) {
         console.log('Zoom change event-------', event);
 
+        console.log('Current zoom level: ', event.target._zoom);
+
         if (event.target._zoom > 5) {
-            
+            console.log('Zoom level is greater than 5...')
 
 
 
@@ -311,7 +313,7 @@ export default class MapContainer extends React.Component {
         console.log(this.imageSrc)
 
         return (
-            <div>
+            <div className='grid-container'>
                 <Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>
                     <FeatureGroup>
                         <EditControl
@@ -338,6 +340,9 @@ export default class MapContainer extends React.Component {
                         </Popup>
                     </Marker>
                 </Map>
+                <div className="resultList">
+                    <h3>Query Results</h3>
+                </div>
 
                 {/*{path: "tiles/30/U/YC/2015/8/8/0", timestamp: "2015-08-08T11:05:33.511Z", utmZone: 30, latitudeBand: "U", gridSquare: "YC", …}*/}
                 {/*cloudyPixelPercentage*/}
