@@ -37,6 +37,8 @@ export default class MapContainer extends React.Component {
 
         this.toggleAmazonAPI = this.toggleAmazonAPI.bind(this);
 
+        this.handleZoomChange = this.handleZoomChange.bind(this);
+
         this.state = {
             imageSrc: "/app/static/img.jpg",
             currentTileInfo: {},
@@ -54,6 +56,18 @@ export default class MapContainer extends React.Component {
         this.setState({
             amazonAPI: !this.state.amazonAPI
         })
+    }
+
+    handleZoomChange(event) {
+        console.log('Zoom change event-------', event);
+
+        if (event.target._zoom > 5) {
+            
+
+
+
+
+        }
     }
 
     getBoundsInMGRS(inputCoords) {
@@ -308,7 +322,7 @@ export default class MapContainer extends React.Component {
 
         return (
             <div>
-                <Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0}>
+                <Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>
                     <FeatureGroup>
                         <EditControl
                             position='topright'
