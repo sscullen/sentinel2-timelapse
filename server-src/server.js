@@ -95,7 +95,17 @@ const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
             var str = '';
 
             console.log(response.headers)
-            console.log(response.statusCode)
+            console.log(typeof(response.statusCode))
+
+            if (response.statusCode === 404) {
+                console.log('status code is 404')
+                return reject('not found')
+            } else if(response.statusCode === 401) {
+
+                console.log('status code is un-authorized')
+                return reject('not authorized')
+
+            }
 
             //another chunk of data has been recieved, so append it to `str`
             response.on('data', function (chunk) {
@@ -184,6 +194,8 @@ const getCompleteItemList = (polygonString, itemList) => {
 
         }, (err) => {
             console.log(err)
+            reject(err);
+
         });
     });
 
@@ -348,9 +360,13 @@ app.get('/openaccessdatahub', (req, res) => {
         res.send(JSON.stringify(formattedDataItemArray));
 
 
+    }, (err) => {
+        console.log('the promise was rejected, ', err)
+        res.status(401).send('sorry something didnt work');
     }).catch((err) => {
         console.log(err);
         console.log('sorry something went wrong');
+        res.status(401).send(err);
     });
 
 
