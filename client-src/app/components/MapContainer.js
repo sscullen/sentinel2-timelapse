@@ -42,7 +42,8 @@ export default class MapContainer extends React.Component {
         this.state = {
             imageSrc: "/app/static/img.jpg",
             currentTileInfo: {},
-            amazonAPI: true
+            amazonAPI: true,
+            resultsList: []
         };
 
 
@@ -231,13 +232,23 @@ export default class MapContainer extends React.Component {
 
                     // how to add an image raster to the map using the mainMap reference
 
+                    console.log('Raw response ' + response)
+                    console.log('response data' + response.data);
+
+
+
+                    this.setState({
+                        resultsList: [...response.data]
+                    });
+
+
                     // Check for the various File API support.
-                    if (window.File && window.FileReader && window.FileList && window.Blob) {
-                        // Great success! All the File APIs are supported.
-                        console.log('The File APIs are fully supported')
-                    } else {
-                        console.log('The File APIs are not fully supported in this browser.');
-                    }
+                    // if (window.File && window.FileReader && window.FileList && window.Blob) {
+                    //     // Great success! All the File APIs are supported.
+                    //     console.log('The File APIs are fully supported')
+                    // } else {
+                    //     console.log('The File APIs are not fully supported in this browser.');
+                    // }
 
                     // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
                     //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
@@ -342,6 +353,15 @@ export default class MapContainer extends React.Component {
                 </Map>
                 <div className="resultList">
                     <h3>Query Results</h3>
+                    <ul>
+                        {this.state.resultsList.map((obj) =>{
+                            return (<li key={ obj.uuid }>
+                                        {obj.product_name}
+                                        {/*need to authenticate to use the raw url for the images*/}
+                                        {/*<img src={obj.quicklookURL} alt={obj.product_name}/>*/}
+                                    </li>);
+                        })}
+                    </ul>
                 </div>
 
                 {/*{path: "tiles/30/U/YC/2015/8/8/0", timestamp: "2015-08-08T11:05:33.511Z", utmZone: 30, latitudeBand: "U", gridSquare: "YC", …}*/}

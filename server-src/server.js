@@ -76,52 +76,9 @@ app.listen(port, () => {
     console.log('Express listening on ' + port);
 });
 
+// connect to ESA Sentinel Datahub API, multiple pages might be required
 
-// connect to sentinel 2 data hub API
-
-// important parameters
-// -m <mission name>		: Sentinel mission name. Possible options are: Sentinel-1, Sentinel-2, Sentinel-3);"
-// echo ""
-// echo "   -i <instrument name>		: instrument name. Possible options are: SAR, MSI, OLCI, SLSTR, SRAL);"
-
-// //The url we want is: 'www.random.org/integers/?num=1&min=1&max=10&col=1&base=10&format=plain&rnd=new'
-// var options = {
-//     host: 'scihub.copernicus.eu',
-//     path: '/dhus/search?q=' + querystring.escape('producttype:S2MSI1C AND footprint:"Intersects(POLYGON((-4.53 29.85, 26.75 29.85, 26.75 46.80,-4.53 46.80,-4.53 29.85)))"'),
-//     auth: 'ss.cullen:M0n796St3Ruleth4'
-// };
-//
-// console.log(querystring.escape('/dhus/search?q=producttype:MSI AND platformname:Sentinel-2 AND footprint:"Intersects(POLYGON((-4.53 29.85, 26.75 29.85, 26.75 46.80,-4.53 46.80,-4.53 29.85)))"'))
-//
-// callback = function(response) {
-//     var str = '';
-//
-//     console.log(response.headers)
-//     console.log(response.statusCode)
-//
-//     //another chunk of data has been recieved, so append it to `str`
-//     response.on('data', function (chunk) {
-//         str += chunk;
-//     });
-//
-//     //the whole response has been recieved, so we just print it out here
-//     response.on('end', function () {
-//         console.log(str);
-//     });
-// }
-//
-// https.request(options, callback).end();
-
-// wrap the https request to the sentinel data hub in a promise
-//
-// var options = {
-//     host: 'scihub.copernicus.eu',
-//     path: '/dhus/search?format=json&rows=100&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
-//     auth: sentinelUser + ':' + sentinelPass
-// }
-
-
-const searchSentinelDataHub = (polygonString, startRow) => {
+const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
     console.log('username is ', sentinelUser)
     console.log('password is ', sentinelPass)
 
@@ -158,9 +115,6 @@ const searchSentinelDataHub = (polygonString, startRow) => {
                 console.log(jsonResponseObject)
 
                 return resolve(jsonResponseObject);
-                // for (let entry of jsonResponseObject.feed.entry) {
-                //     console.log(entry);
-                // }
 
             });
 
@@ -170,6 +124,70 @@ const searchSentinelDataHub = (polygonString, startRow) => {
 
 };
 
+const getCompleteItemList = (polygonString, itemList) => {
+
+    return new Promise((resolve, reject) => {
+
+        return searchSentinelDataHubSinglePage(polygonString, 0).then((result) => {
+
+            const totalResults = result.feed['opensearch:totalResults'];
+
+            if (totalResults === 0) {
+                reject('something went wrong, no results')
+            }
+
+            if (totalResults <= 100) {
+
+                console.log('all data fits on one page, no need to page further')
+
+                //console.log('RESULT DATA: ', result)
+
+                console.log(result.feed.entry)
+
+                itemList.push(...result.feed.entry);
+
+                console.log('Total Item : ', itemList);
+
+                resolve();
+
+
+            } else {
+
+                let promiseList = [];
+
+                // how many times does 100 go into total results
+
+                let pageCount = parseInt(totalResults) / parseInt(100);
+
+                console.log('Data not contained on one page, we will need to query ', pageCount);
+
+                for (let i = 0; i < pageCount; i++) {
+
+                    promiseList.push(searchSentinelDataHubSinglePage(polygonString, i * 100))
+                }
+
+                Promise.all(promiseList).then((result) => {
+                    console.log("ALL DONE THIS GROUP OF PROMISES BOSS")
+                    console.log('RESULT ', result)
+
+                    //console.log(result);
+                    for (let r of result) {
+
+                        console.log('One result------------------------------------------------------------------------');
+                        console.log(r.feed.entry.length)
+                        itemList.push(...r.feed.entry)
+                    }
+
+                    resolve();
+                })
+            }
+
+        }, (err) => {
+            console.log(err)
+        });
+    });
+
+};
 
 
 // getPrefixFragmentPromise
@@ -307,33 +325,61 @@ app.get('/openaccessdatahub', (req, res) => {
 
     console.log(polygonString)
 
+    let itemList = [];
 
+    getCompleteItemList(polygonString, itemList).then(() => {
+        // All done boss, lets filter the array and send a response to the client
+        // Each item should have
+        // Title
+        // Quicklook url (should be standard, might not be)
+        // UUID
+        // footprint polygon
+        // cloud percentage
+        // metadata url (for more info like title, if multiple granules or not)
 
-    searchSentinelDataHub(polygonString, 0).then((jsonResponseObject) => {
+        // use utility function reformatDataItem
 
-        // grab the first entry UUID and try to download the preview image
+        let formattedDataItemArray = [];
 
-        let entry1id = jsonResponseObject.feed.entry[0].id;
-        let entry1filename = jsonResponseObject.feed.entry[0].str.find((obj) => {
-
-            return obj.name === 'filename';
-
-        }).content;
-
-        let qString = '/dhus/odata/' + querystring.escape('v1/Products(' + entry1id + ')/Nodes(' + entry1filename + ')/Nodes(\'preview\')/Nodes(\'quick-look.png\')/$value');
-        console.log(qString)
-
-        // total response entities
-        let totalItems = jsonResponseObject.feed['opensearch:totalResults'];
-
-        console.log('Total data items: ', totalItems)
-
-        if (totalItems > 100) {
-            console.log('Total data items exceeds 100, need to re-query the server');
+        for (let item of itemList) {
+            formattedDataItemArray.push(reformatDataItem(item))
         }
 
+        res.send(JSON.stringify(formattedDataItemArray));
 
+
+    }).catch((err) => {
+        console.log(err);
+        console.log('sorry something went wrong');
     });
+
+
+
+    // searchSentinelDataHubSinglePage(polygonString, 0).then((jsonResponseObject) => {
+    //
+    //     // grab the first entry UUID and try to download the preview image
+    //
+    //     let entry1id = jsonResponseObject.feed.entry[0].id;
+    //     let entry1filename = jsonResponseObject.feed.entry[0].str.find((obj) => {
+    //
+    //         return obj.name === 'filename';
+    //
+    //     }).content;
+    //
+    //     let qString = '/dhus/odata/' + querystring.escape('v1/Products(' + entry1id + ')/Nodes(' + entry1filename + ')/Nodes(\'preview\')/Nodes(\'quick-look.png\')/$value');
+    //     console.log(qString)
+    //
+    //     // total response entities
+    //     let totalItems = jsonResponseObject.feed['opensearch:totalResults'];
+    //
+    //     console.log('Total data items: ', totalItems)
+    //
+    //     if (totalItems > 100) {
+    //         console.log('Total data items exceeds 100, need to re-query the server');
+    //     }
+    //
+    //
+    // });
 
 
 
@@ -651,3 +697,57 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
         });
     });
 });
+
+
+const reformatDataItem = (item) => {
+    let obj = {};
+
+    console.log(item.link); // All the link items with this entry
+
+    obj.quicklookURL = item.link.find((item) => {
+        return item.rel === 'icon';
+    }).href;
+
+    obj.product_name = item.title;
+    obj.uuid = item.id;
+    obj.date = item.date.find((date) => {
+        return date.name === 'beginposition';
+    }).content;
+
+    obj.ingestionname = item.str.find((item) => {
+        return item.name === 's2datatakeid';
+    }).content;
+
+    if (item.str.hasOwnProperty('tileid')) {
+        obj.tileid = item.str.find((item) => {
+            return item.name === 'tileid';
+        }).content;
+    }
+
+    obj.datasize = item.str.find((item) => {
+        return item.name === 'size';
+    }).content;
+
+    // parse polygon
+    let polygonString = item.str.find((item) => {
+        return item.name === 'footprint';
+    }).content;
+
+    polygonString = polygonString.slice(10, -2);
+
+    console.log(polygonString);
+
+    polygonCoords = polygonString.split(',');
+
+    let geoJsonFootprint = {};
+
+    geoJsonFootprint.type = 'Polygon';
+    geoJsonFootprint.coordinates = [];
+    geoJsonFootprint.coordinates.push(polygonCoords);
+
+    obj.footprint = geoJsonFootprint;
+
+    console.log('Final Object: ', obj);
+
+    return obj;
+};
