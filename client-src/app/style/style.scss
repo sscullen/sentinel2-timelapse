@@ -1,9 +1,6 @@
 $btn-font-weight:bold;
 
-.mainContainer {
-  margin-top: 50px;
-  width: 75%;
-}
+
 
 .feature-container {
   margin-top: 15px;
@@ -12,10 +9,16 @@ $btn-font-weight:bold;
 /* set a max-width for horizontal fluid layout and make it centered */
 
 #app {
-  margin-right: auto;
-  margin-left: auto;
-  max-width: 50em; /* or 950px */
-  min-width: 25em;
+  margin: auto;
+  width: 90%;
+  //max-width: 90%; /* or 950px */
+  //min-width: 25em;
+
 }
 
+
+.container {
+  width: 100%;
+  margin: 0px 0px;
+}
 //@import '~bootstrap/scss/bootstrap.scss';

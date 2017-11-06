@@ -73,6 +73,7 @@ export default class MapContainer extends React.Component {
         }
     }
 
+
     getBoundsInMGRS(inputCoords) {
 
         let mgrsValues = [];
@@ -220,6 +221,27 @@ export default class MapContainer extends React.Component {
 
             console.log('query string is :', queryStr)
 
+            const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+                const byteCharacters = atob(b64Data);
+                const byteArrays = [];
+
+                for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+                    const slice = byteCharacters.slice(offset, offset + sliceSize);
+
+                    const byteNumbers = new Array(slice.length);
+                    for (let i = 0; i < slice.length; i++) {
+                        byteNumbers[i] = slice.charCodeAt(i);
+                    }
+
+                    const byteArray = new Uint8Array(byteNumbers);
+
+                    byteArrays.push(byteArray);
+                }
+
+                const blob = new Blob(byteArrays, {type: contentType});
+                return blob;
+            };
+
             // using the esa open data hub API instead of the amazon
             axios.get(config.server_address + '/openaccessdatahub?' + queryStr, {responseType: 'json'}).then((response) => {
 
@@ -235,11 +257,26 @@ export default class MapContainer extends React.Component {
                     console.log('Raw response ' + response)
                     console.log('response data' + response.data);
 
+                    let localList = [];
+
+                    for (let item of response.data) {
+
+                        let blob = b64toBlob(item.imagebuffer, 'image/jpg');
+
+                        let objUrl = window.URL.createObjectURL(blob);
+
+                        item.localImageURL = objUrl;
+
+                        localList.push(item);
+
+                    }
 
 
                     this.setState({
-                        resultsList: [...response.data]
+                        resultsList: [...localList]
                     });
+
+                    console.log(localList[0])
 
 
                     // Check for the various File API support.
@@ -357,8 +394,9 @@ export default class MapContainer extends React.Component {
                         {this.state.resultsList.map((obj) =>{
                             return (<li key={ obj.uuid }>
                                         {obj.product_name}
+                                        {console.log(obj.quicklookURL)}
                                         {/*need to authenticate to use the raw url for the images*/}
-                                        {/*<img src={obj.quicklookURL} alt={obj.product_name}/>*/}
+                                        <img src={obj.localImageURL} alt={obj.product_name}/>
                                     </li>);
                         })}
                     </ul>

@@ -13,19 +13,27 @@ $btn-font-weight:bold;
 //  height: 15em;
 //}
 
+body {
+  width: 100%;
+}
+
 .grid-container {
   display: grid;
 
   //grid-template-columns: minmax(min-content, 2fr) minmax(max-content, 1fr);
   grid-template-columns: 2fr 1fr;
+  grid-template-rows: 2fr 2fr;
   grid-gap: 30px;
+
+  min-width: 100%;
+  height: 100%;
 
 }
 
 .mainMap {
   // have to sync this height with the height in the declaration of <Map> inside MapContainer
 
-  height: 500px;
+  height: 800px;
   width: 100%;
   margin: 0 auto;
   margin-top: 20px;
@@ -35,8 +43,15 @@ $btn-font-weight:bold;
 
 .resultList {
   grid-column: span 1;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflox-y: scroll;
+  min-height: 0px;
+  max-height: 800px;
+}
 
+.resultList img {
+  max-width: 100%;
+  border: 1px solid coral;
 }
 
 #sampleimage {

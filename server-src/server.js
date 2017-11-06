@@ -18,11 +18,11 @@ const xml2js = require('xml2js');
 
 const parseString = xml2js.parseString;
 
+// SEt up your auth requirements
 const sentinelUser = process.env.sentinelUser;
 const sentinelPass = process.env.sentinelPass;
 
-console.log(sentinelUser, sentinelPass);
-
+// Only required if the result from the server is in XML
 //
 // var xml = "<root>Hello xml2js!</root>"
 //
@@ -76,11 +76,79 @@ app.listen(port, () => {
     console.log('Express listening on ' + port);
 });
 
+
+// connect to ESA Sentinel Datahub API to get preview image, return as a base64 encoded string,
+// That can be transferred back to binary on the client side
+
+const getPreviewImage = (obj, base64String) => {
+
+    return new Promise((resolve, reject) => {
+
+        // Quicklookurl https://scihub.copernicus.eu/dhus/odata/v1/Products('f4d9d5b2-48de-4f64-b4c9-16ad52222f6c')/Products('Quicklook')/$value
+        const justPath = obj.quicklookURL.slice(28);
+
+
+        var options = {
+            host: 'scihub.copernicus.eu',
+            path: justPath,
+            auth:  sentinelUser + ':' + sentinelPass
+        };
+
+        https.request(options, (response) => {
+
+            var data = [];
+
+            console.log(response.headers)
+            console.log(typeof(response.statusCode))
+
+            if (response.statusCode === 404) {
+                console.log('status code is 404')
+                return reject('not found')
+            } else if(response.statusCode === 401) {
+
+                console.log('status code is un-authorized')
+                return reject('not authorized')
+
+            }
+
+            //another chunk of data has been recieved, so append it to `str`
+            response.on('data', function (chunk) {
+                console.log('chunk recieved ----------------')
+
+                data.push(chunk);
+            });
+
+            //the whole response has been recieved, so we just print it out here
+            response.on('end', function () {
+                console.log('everything has been received! --------------------------------------');
+
+                let finalBuffer = Buffer.concat(data);
+
+                // console.log(finalBuffer)
+
+                if (base64String === true) {
+
+                    obj.imagebuffer = finalBuffer.toString('base64');
+
+                    resolve(obj);
+                } else {
+                    obj.imagebuffer = finalBuffer;
+                    resolve(obj);
+                }
+
+
+            });
+
+        }).end();
+
+    });
+
+};
+
+
 // connect to ESA Sentinel Datahub API, multiple pages might be required
 
 const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
-    console.log('username is ', sentinelUser)
-    console.log('password is ', sentinelPass)
 
     return new Promise((resolve, reject) => {
 
@@ -352,12 +420,17 @@ app.get('/openaccessdatahub', (req, res) => {
         // use utility function reformatDataItem
 
         let formattedDataItemArray = [];
+        let promiseList = []
 
         for (let item of itemList) {
-            formattedDataItemArray.push(reformatDataItem(item))
+            promiseList.push(reformatDataItem(item))
         }
 
-        res.send(JSON.stringify(formattedDataItemArray));
+        Promise.all(promiseList).then((result) => {
+            console.log(result);
+
+            res.send(JSON.stringify(result));
+        });
 
 
     }, (err) => {
@@ -565,36 +638,8 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
         parsedCoordMain = parsedCoord
 
-        console.log('IS THIS SHOWING UP')
-
-        // date format "2015/7/12/0/"
-        //
-        // var params = {
-        //     Bucket: 'sentinel-s2-l1c',
-        //     Delimiter: '/',
-        //     EncodingType: "url",
-        //     FetchOwner: false,
-        //     MaxKeys: 100,
-        //     RequestPayer: "requester",
-        //     Prefix: "tiles/"+ parsedCoord[0] + "/" + parsedCoord[1] + "/" + parsedCoord[2] + "/"
-        // };
-        //
-        //
-        // // disable to not get rate limited
-        //
-        // s3.makeUnauthenticatedRequest('listObjectsV2', params, function (err, data) {
-        //     if (err)
-        //         console.log(err);
-        //     else
-        //         console.log(data);
-        // });
     }
 
-    // run just once for tests
-    // date format "2015/7/12/0/"
-
-
-    //let year, month, day, specifier;
 
     let prefixInitial = "tiles/" + parsedCoordMain[0] + "/" + parsedCoordMain[1] + "/" + parsedCoordMain[2] + "/";
 
@@ -633,29 +678,6 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
                 fs.writeFile(__dirname + '/' + fileName, data.Body, () => {
                     console.log('Wrote out the image to disk! Check it out!');
-
-
-                    // send individual file
-
-                    //var options = {
-                        //     root: __dirname,
-                        //     dotfiles: 'deny',
-                        //     headers: {
-                        //         'x-timestamp': Date.now(),
-                        //         'x-sent': true
-                        //     }
-                        // };
-
-
-                        // res.sendFile(fileName, options, function (err) {
-                    //     if (err) {
-                    //         console.log(err)
-                    //     } else {
-                    //         console.log('Sent file: ', fileName)
-                    //         console.log('sent back preview image for ', fileName)
-                    //     }
-                    // });
-
 
 
                 });
@@ -716,54 +738,65 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
 
 
 const reformatDataItem = (item) => {
-    let obj = {};
 
-    console.log(item.link); // All the link items with this entry
+    return new Promise((resolve, reject) => {
 
-    obj.quicklookURL = item.link.find((item) => {
-        return item.rel === 'icon';
-    }).href;
 
-    obj.product_name = item.title;
-    obj.uuid = item.id;
-    obj.date = item.date.find((date) => {
-        return date.name === 'beginposition';
-    }).content;
+        let obj = {};
 
-    obj.ingestionname = item.str.find((item) => {
-        return item.name === 's2datatakeid';
-    }).content;
+        console.log(item.link); // All the link items with this entry
 
-    if (item.str.hasOwnProperty('tileid')) {
-        obj.tileid = item.str.find((item) => {
-            return item.name === 'tileid';
+        obj.quicklookURL = item.link.find((item) => {
+            return item.rel === 'icon';
+        }).href;
+
+
+
+        obj.product_name = item.title;
+        obj.uuid = item.id;
+        obj.date = item.date.find((date) => {
+            return date.name === 'beginposition';
         }).content;
-    }
 
-    obj.datasize = item.str.find((item) => {
-        return item.name === 'size';
-    }).content;
+        obj.ingestionname = item.str.find((item) => {
+            return item.name === 's2datatakeid';
+        }).content;
 
-    // parse polygon
-    let polygonString = item.str.find((item) => {
-        return item.name === 'footprint';
-    }).content;
+        if (item.str.hasOwnProperty('tileid')) {
+            obj.tileid = item.str.find((item) => {
+                return item.name === 'tileid';
+            }).content;
+        }
 
-    polygonString = polygonString.slice(10, -2);
+        obj.datasize = item.str.find((item) => {
+            return item.name === 'size';
+        }).content;
 
-    console.log(polygonString);
+        // parse polygon
+        let polygonString = item.str.find((item) => {
+            return item.name === 'footprint';
+        }).content;
 
-    polygonCoords = polygonString.split(',');
+        polygonString = polygonString.slice(10, -2);
 
-    let geoJsonFootprint = {};
+        console.log(polygonString);
 
-    geoJsonFootprint.type = 'Polygon';
-    geoJsonFootprint.coordinates = [];
-    geoJsonFootprint.coordinates.push(polygonCoords);
+        polygonCoords = polygonString.split(',');
 
-    obj.footprint = geoJsonFootprint;
+        let geoJsonFootprint = {};
 
-    console.log('Final Object: ', obj);
+        geoJsonFootprint.type = 'Polygon';
+        geoJsonFootprint.coordinates = [];
+        geoJsonFootprint.coordinates.push(polygonCoords);
 
-    return obj;
+        obj.footprint = geoJsonFootprint;
+
+        console.log('Final Object: ', obj);
+
+
+        getPreviewImage(obj, true).then((result) => {
+            resolve(result);
+        });
+
+    });
 };

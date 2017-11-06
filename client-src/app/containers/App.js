@@ -10,6 +10,10 @@ import MapContainer from '../components/MapContainer'
 // import redux actions for convience
 import { setName, setAge } from '../actions/userActions'
 
+
+
+import "../style/style.scss"
+
 // to finish the connection between Redux and React, you do not export the component directly
 // you must pass your component to the function returned by connect method and export that
 class App extends React.Component {
