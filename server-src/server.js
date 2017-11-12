@@ -384,7 +384,7 @@ app.get('/openaccessdatahub', (req, res) => {
 
     console.log('recieved a request on /openaccessdatahub');
 
-    console.log(req);
+    //console.log(req);
 
     let coords = req.query.q.split('_')
 

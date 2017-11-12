@@ -40,7 +40,7 @@ export default class MapContainer extends React.Component {
         this.handleZoomChange = this.handleZoomChange.bind(this);
 
         this.state = {
-            imageSrc: "/app/static/img.jpg",
+            imageSrc: "./app/static/img.jpg",
             currentTileInfo: {},
             amazonAPI: true,
             resultsList: []
@@ -276,7 +276,7 @@ export default class MapContainer extends React.Component {
                         resultsList: [...localList]
                     });
 
-                    console.log(localList[0])
+                    console.log('What does our data have: ', localList[0])
 
 
                     // Check for the various File API support.
@@ -358,7 +358,17 @@ export default class MapContainer extends React.Component {
         var northEast = new L.LatLng(90, 200);
         var restrictBounds = new L.LatLngBounds(southWest, northEast);
 
-        console.log(this.imageSrc)
+
+        let imageSrc = this.state.imageSrc;
+
+        console.log(imageSrc)
+
+        var sectionStyle = {
+            border: "1px solid red",
+            backgroundColor: "red",
+            backgroundImage: "url(" + this.state.imageSrc + ")",
+            backgroundSize: "contain"
+        };
 
         return (
             <div className='grid-container'>
@@ -393,7 +403,10 @@ export default class MapContainer extends React.Component {
                     <ul>
                         {this.state.resultsList.map((obj) =>{
                             return (<li key={ obj.uuid }>
-                                        {obj.product_name}
+                                        {obj.product_name}<br/>
+                                        {obj.uuid} <br/>
+                                        {obj.date} <br/>
+
                                         {console.log(obj.quicklookURL)}
                                         {/*need to authenticate to use the raw url for the images*/}
                                         <img src={obj.localImageURL} alt={obj.product_name}/>
@@ -443,8 +456,10 @@ export default class MapContainer extends React.Component {
                 {/*:*/}
                 {/*30*/}
 
-                <img id="sampleimage" src={this.state.imageSrc}></img>
-                <div>
+                <div id="sampleimage" style={ sectionStyle }></div>
+
+                {/*<img src={imageSrc} alt="Sample Tile Image"/>*/}
+                <div className="tile-info">
                     <p>Tile Info</p>
                     <p>Date: {this.state.currentTileInfo.timestamp}</p>
                     <p>Tile: {this.state.currentTileInfo.path}</p>
