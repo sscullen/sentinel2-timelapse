@@ -3,9 +3,11 @@
  */
 import React from 'react';
 
-import { Circle, Map, Marker, Popup, TileLayer, FeatureGroup } from 'react-leaflet';
+import { Circle, Map, Marker, Popup, TileLayer, FeatureGroup, GeoJSON } from 'react-leaflet';
 
 import { EditControl } from 'react-leaflet-draw';
+
+import imageoverlay from 'leaflet-imageoverlay-rotated';
 
 import axios from 'axios';
 
@@ -39,11 +41,16 @@ export default class MapContainer extends React.Component {
 
         this.handleZoomChange = this.handleZoomChange.bind(this);
 
+        this.setCurrentTile = this.setCurrentTile.bind(this);
+
         this.state = {
             imageSrc: "./app/static/img.jpg",
             currentTileInfo: {},
             amazonAPI: true,
-            resultsList: []
+            resultsList: [],
+            geoJson: [],
+            tileFootprint: [],
+            currentTileID: ""
         };
 
 
@@ -73,8 +80,73 @@ export default class MapContainer extends React.Component {
         }
     }
 
+    setCurrentTile(uuid, event) {
+        console.log('Tile clicked', event)
+
+        console.log('Tile id : ', uuid)
+
+        this.setState({
+            currentTileID: uuid
+        });
+
+
+        let currentTile = this.state.resultsList.filter((tile) => tile.uuid === uuid)[0]
+        console.log('currentTile', currentTile);
+
+
+        let myRE = /T\d{1,2}[A-Z]{3}/;
+
+        var myArray = myRE.exec(currentTile.product_name);
+
+        let tileUTM = myArray[0].slice(1);
+
+        console.log('TileUTM ident', tileUTM);
+
+        // get the right footprint from the list of tile foot prints
+
+        let currentFootprint = this.state.tileFootprint.filter((tile) => tile.name === tileUTM)[0];
+
+        let coords = currentFootprint.geometry.geometries[0].coordinates[0];
+
+        console.log('footprint geometry', coords)
+        // let imageBounds = [];
+        //
+        // // imageBounds.push([coords[0][1], coords[0][0]]);
+        // // imageBounds.push([coords[2][1], coords[2][0]]);
+        // //
+        //
+        // console.log('Image bounds:', imageBounds);
+
+
+        // L.imageOverlay(currentTile.localImageURL, imageBounds).addTo(this.mainMap);
+
+        var topleft    = L.latLng(coords[0][1], coords[0][0]),
+            topright   = L.latLng(coords[1][1], coords[1][0]),
+            bottomleft = L.latLng(coords[3][1], coords[3][0]),
+            bottomright = L.latLng(coords[2][1], coords[2][0]);
+
+        // imageoverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, {
+        //     opacity: 0.7,
+        //     interactive: true,
+        //     attribution: "ESA-Sentinel2"
+        // }).addTo(this.mainMap);
+
+        console.log('Calling image overlay rotated')
+
+        L.imageOverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, bottomright, {
+            opacity: 0.9,
+            interactive: true,
+            attribution: "ESA-Sentinel2"
+        }).addTo(this.mainMap);
+
+    }
+
 
     getBoundsInMGRS(inputCoords) {
+
+        this.setState({
+            tileFootprint: []
+        })
 
         let mgrsValues = [];
 
@@ -87,13 +159,13 @@ export default class MapContainer extends React.Component {
             mgrsValues.push(fn(coord.lat, coord.lng, 5));
         }
 
-        for (let value of mgrsValues) {
-            console.log(value);
-        }
+        console.log('MGRS coords')
+
 
         let postObject = {
             coords: mgrsValues
         };
+
 
         let that = this;
 
@@ -276,8 +348,131 @@ export default class MapContainer extends React.Component {
                         resultsList: [...localList]
                     });
 
+                    // Load the footprints for the retrieved data
+                    // First get teh uniq tile zones in the retrieved data
+
+                    let uniqUTMZone = [];
+
+                    for (let thing of this.state.resultsList) {
+
+                        console.log('local data list item', thing);
+
+                        // load the reference tile for this geojson
+                        console.log('ProductName', thing.product_name)
+
+                        let myRE = /T\d{1,2}[A-Z]{3}/;
+                        var myArray = myRE.exec(thing.product_name);
+
+                        if (myArray) {
+
+                            console.log('Full Zone Name: ', myArray[0]);
+
+
+                            uniqUTMZone.push(myArray[0]);
+
+                        } else {
+                            console.log('this is a multi-feature data product (not a single tile)')
+                        }
+
+
+                    }
+
+                    let uniqUTMZoneSet = new Set(uniqUTMZone);
+
+                    let uniqJustUTM = {};
+
+                    for (let thing of uniqUTMZoneSet) {
+
+                        console.log('THING ------------------------------------------------------- ', thing);
+
+                        let justUTM = thing.slice(1, 3);
+                        console.log("UTM ZOne!!:", justUTM);
+
+                        if (!uniqJustUTM.hasOwnProperty(justUTM)) {
+
+                            let newArray = []
+                            newArray.push(thing.slice(3, 6));
+
+                            console.log('WE IN IT NOW BOYSE', thing.slice(3, 6));
+
+                            uniqJustUTM[justUTM] = newArray;
+
+                        } else {
+                            uniqJustUTM[justUTM].push(thing.slice(3, 6));
+                        }
+
+                    }
+
+
+                    console.log('list of files to open for footprint', uniqJustUTM);
+
+
+                    for (let zoneIndex in uniqJustUTM) {
+
+                        let fileStringComplete = './app/static/' + zoneIndex + '.geojson';
+
+                        console.log(fileStringComplete)
+
+                        let that = this;
+
+                        fetch(fileStringComplete).then(function(response) {
+                            return response.json();
+
+                        }).then(function(myJSON) {
+
+                            console.log(myJSON)
+
+                            var newArray = that.state.tileFootprint.slice();
+
+                            for(let listItem of uniqJustUTM[zoneIndex]) {
+
+                                console.log("list item", listItem);
+
+                                for (let feature of myJSON.features) {
+
+                                    if (feature.properties.name.slice(-3) === listItem) {
+
+
+                                        feature.name = zoneIndex + listItem;
+                                        console.log(feature);
+
+                                        newArray.push(feature);
+
+                                    }
+                                }
+
+                                console.log('New Array: ', newArray)
+                            }
+
+                            that.setState({
+                                tileFootprint: newArray
+                            })
+                        });
+
+
+
+                    }
+
+
                     console.log('What does our data have: ', localList[0])
 
+                    let geoJsonString = JSON.stringify(localList[0].footprint);
+
+                    console.log(geoJsonString);
+
+                    // L.geoJSON(geoJsonString).addTo(that.mainMap);
+                    console.log('UPDDDDDATING!');
+
+                    let newArray = [];
+                    newArray.push(localList[0].footprint);
+
+
+                    newArray[0].name = localList[0].product_name;
+
+                    console.log(newArray)
+                    this.setState({
+                        geoJson: newArray
+                    });
 
                     // Check for the various File API support.
                     // if (window.File && window.FileReader && window.FileList && window.Blob) {
@@ -370,6 +565,24 @@ export default class MapContainer extends React.Component {
             backgroundSize: "contain"
         };
 
+
+
+        let currentTileFootprint = () => {
+            let style = {
+                "color": "#ff7800",
+                "weight": 5,
+                "opacity": 0.65
+            };
+
+            if (this.state.currentTileID !== "") {
+                let currentTileFootprint = this.state.resultsList.find((obj) => obj.uuid === this.state.currentTileID).footprint;
+                console.log(currentTileFootprint);
+                return (
+                    <GeoJSON key={this.state.currentTileID} data={currentTileFootprint} style={style} />
+                );
+            }
+        }
+
         return (
             <div className='grid-container'>
                 <Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>
@@ -392,6 +605,17 @@ export default class MapContainer extends React.Component {
                         attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
                         // noWrap='false'
                     />
+
+                    {this.state.tileFootprint.map((obj) =>{
+                        return (
+                            <GeoJSON key={obj.name} data={obj} style="" />
+                        );
+                    })}
+
+
+                    {currentTileFootprint()}
+
+
                     <Marker position={position}>
                         <Popup>
                             <span>A pretty CSS3 popup.<br/>Easily customizable.</span>
@@ -402,12 +626,11 @@ export default class MapContainer extends React.Component {
                     <h3>Query Results</h3>
                     <ul>
                         {this.state.resultsList.map((obj) =>{
-                            return (<li key={ obj.uuid }>
+                            return (<li key={ obj.uuid } onClick={(e) => this.setCurrentTile(obj.uuid, e)}>
                                         {obj.product_name}<br/>
                                         {obj.uuid} <br/>
                                         {obj.date} <br/>
 
-                                        {console.log(obj.quicklookURL)}
                                         {/*need to authenticate to use the raw url for the images*/}
                                         <img src={obj.localImageURL} alt={obj.product_name}/>
                                     </li>);

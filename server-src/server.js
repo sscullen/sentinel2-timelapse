@@ -427,7 +427,7 @@ app.get('/openaccessdatahub', (req, res) => {
         }
 
         Promise.all(promiseList).then((result) => {
-            console.log(result);
+            //console.log(result);
 
             res.send(JSON.stringify(result));
         });
@@ -783,15 +783,28 @@ const reformatDataItem = (item) => {
 
         polygonCoords = polygonString.split(',');
 
+        console.log('Polygon coords : ', polygonCoords)
+
         let geoJsonFootprint = {};
 
         geoJsonFootprint.type = 'Polygon';
         geoJsonFootprint.coordinates = [];
-        geoJsonFootprint.coordinates.push(polygonCoords);
+
+        let singlePolygon = [];
+
+        for (let coord of polygonCoords) {
+            singlePolygon.push(coord.split(" ").map((item) => {
+                console.log('item : ', item);
+
+                return parseFloat(item);
+            }));
+        }
+
+        geoJsonFootprint.coordinates.push(singlePolygon.reverse())
 
         obj.footprint = geoJsonFootprint;
 
-        console.log('Final Object: ', obj);
+        // console.log('Final Object: ', obj);
 
 
         getPreviewImage(obj, true).then((result) => {
