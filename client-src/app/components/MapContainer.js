@@ -3,45 +3,55 @@
  */
 import React from 'react';
 
-import { Circle, Map, Marker, Popup, TileLayer, FeatureGroup, GeoJSON } from 'react-leaflet';
+// import { Circle, Map, Marker, Popup, TileLayer, FeatureGroup, GeoJSON } from 'react-leaflet';
 
-import { EditControl } from 'react-leaflet-draw';
+// import { EditControl } from 'react-leaflet-draw';
 
-import imageoverlay from 'leaflet-imageoverlay-rotated';
+// import imageoverlay from 'leaflet-imageoverlay-rotated';
 
 import axios from 'axios';
 
 import coordinator from 'coordinator';
-import utmToLatlng from 'utm-latlng';
-//var utmConverter = require('utm');
-
-import utm from 'leaflet.utm';
+// import utmToLatlng from 'utm-latlng';
+// //var utmConverter = require('utm');
+//
+// import utm from 'leaflet.utm';
 
 import "../style/_MapContainer.scss"
 
 import config from 'Config'
 
+import mapboxgl from 'mapbox-gl'
+
+import mapboxgldraw from '@mapbox/mapbox-gl-draw';
+
+// Don't forget to import the CSS
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 
 const position = [51.505, -0.09];
 
+mapboxgl.accessToken = 'pk.eyJ1Ijoic2N1bGxlbiIsImEiOiJ1UVAwZ19BIn0.wn4ltQcyl9P5j3bAmNJEPg'
 
 export default class MapContainer extends React.Component {
 
     constructor(props) {
         super(props);
 
+
         this.getBoundsInMGRS = this.getBoundsInMGRS.bind(this);
-        this._onEditPath = this._onEditPath.bind(this);
 
-        this._onCreate = this._onCreate.bind(this);
+        this.clickHandler = this.clickHandler.bind(this);
 
-        this._onDeleted = this._onDeleted.bind(this);
+        // this.drawControl = this.drawControl.bind(this);
+
 
         this.toggleAmazonAPI = this.toggleAmazonAPI.bind(this);
 
         this.handleZoomChange = this.handleZoomChange.bind(this);
 
         this.setCurrentTile = this.setCurrentTile.bind(this);
+
+        this.layerList = [];
 
         this.state = {
             imageSrc: "./app/static/img.jpg",
@@ -50,14 +60,100 @@ export default class MapContainer extends React.Component {
             resultsList: [],
             geoJson: [],
             tileFootprint: [],
-            currentTileID: ""
+            currentTileID: "",
+            currentTileLayerID: "",
+            selectionID: ""
         };
 
 
     }
 
     componentDidMount() {
-        this.mainMap = this.refs.map.leafletElement
+
+        this.map = new mapboxgl.Map({
+            container: this.mapContainer,
+            style: 'mapbox://styles/mapbox/streets-v9'
+        });
+
+        this.map.on('click', (e) => {
+            console.log('map clicked', e)
+        });
+
+        // Create a Draw control
+        this.draw = new mapboxgldraw();
+
+        // Add the Draw control to your map
+        this.map.addControl(this.draw);
+
+        this.map.on('draw.create', (feature) => {
+           console.log('Selection: ', feature);
+
+           let coords = feature.features[0].geometry.coordinates[0];
+
+           console.log('Starting coords', coords);
+
+           let selectionSource = this.map.getSource('selection-id');
+
+           if (selectionSource === undefined) {
+               this.map.addSource('selection-id', {
+                   type: 'geojson',
+                   data: feature.features[0]
+               })
+
+               this.map.addLayer({
+                   id: 'selection-id',
+                   type: 'line',
+                   source: 'selection-id',
+                   paint: {
+                       'line-width': 4,
+                       'line-color': '#77ffda'
+                   }
+               });
+           } else {
+               selectionSource.setData(feature.features[0])
+           }
+
+
+
+
+
+           let coordsLatLng = []
+
+            for (let coord of coords) {
+                console.log('coord', coord);
+
+                let newCoord = {}
+                newCoord.lat = coord[1]
+                newCoord.lng = coord[0]
+               coordsLatLng.push(newCoord)
+            }
+
+            console.log('okay!')
+
+            console.log('finishing coords', coordsLatLng)
+
+
+           this.getBoundsInMGRS(coordsLatLng)
+
+        });
+
+    }
+
+    componentWillUnmount() {
+        this.map.remove();
+    }
+
+    componentDidUpdate() {
+        console.log('component updated')
+        // this.drawControl.on('draw.create', (features) => {
+        //     console.log('did thiss finally work?', features);
+        // });
+
+    }
+
+    clickHandler(map, evt) {
+        console.log('lcik', map, evt)
+        //this.drawControl.draw.deleteAll().getAll();
     }
 
     toggleAmazonAPI() {
@@ -73,8 +169,6 @@ export default class MapContainer extends React.Component {
 
         if (event.target._zoom > 5) {
             console.log('Zoom level is greater than 5...')
-
-
 
 
         }
@@ -108,7 +202,108 @@ export default class MapContainer extends React.Component {
 
         let coords = currentFootprint.geometry.geometries[0].coordinates[0];
 
-        console.log('footprint geometry', coords)
+        console.log('footprint geometry=================================================================', coords)
+
+
+        if (this.map.getLayer(this.state.currentTileLayerID + 'footprint') !== undefined) {
+            this.map.removeLayer(this.state.currentTileLayerID + 'footprint');
+            this.map.removeLayer(this.state.currentTileLayerID + 'image');
+
+            console.log('----------------------------------removed previous layer')
+
+
+        }
+
+        let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
+        console.log(currentSource);
+        console.log('current footprint', currentFootprint);
+
+        // this.map.addSource(jsonMetadata.productName + 'source', {
+        //     type: 'image',
+        //     url: objUrl,
+        //     coordinates: latLngCoords
+        // });
+        //
+        // // this.map.addSource(jsonMetadata.productName, {
+        // //     type: 'geojson',
+        // //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
+        // // });
+        //
+        // this.map.addLayer({
+        //     id: jsonMetadata.productName + 'layer',
+        //     type: 'raster',
+        //     source: jsonMetadata.productName + 'source'
+        // });
+        //
+
+        if (currentSource === undefined) {
+
+            console.log('-------------------------------------Never encountered this source before, adding....')
+
+            this.map.addSource(currentTile.uuid + 'footprint', {
+                type: 'geojson',
+                data: currentTile.footprint
+            })
+
+            console.log(currentFootprint);
+            let imageFootprint = currentFootprint.geometry.geometries[0].coordinates[0];
+
+            console.log('image footprint', imageFootprint)
+
+            let imageThing = imageFootprint.map((item) => {
+                return [item[0], item[1]]
+            });
+
+            imageThing.pop()
+
+            console.log('image footprint 2', imageThing)
+
+            this.map.addSource(currentTile.uuid + 'image', {
+                type: 'image',
+                url: currentTile.localImageURL,
+                coordinates: imageThing
+            })
+
+        }
+
+
+        console.log('---------------------------------------------------------adding this footprint to map... ')
+
+        this.map.addLayer({
+            id: currentTile.uuid + 'footprint',
+            type: 'line',
+            source: currentTile.uuid + 'footprint',
+            paint: {
+                'line-width': 5,
+                'line-color': '#ff88da'
+            }
+        });
+
+        this.map.addLayer({
+            id: currentTile.uuid + 'image',
+            type: 'raster',
+            source: currentTile.uuid + 'image'
+        });
+
+        this.map.removeLayer("selection-id");
+        this.map.addLayer({
+            id: 'selection-id',
+            type: 'line',
+            source: 'selection-id',
+            paint: {
+                'line-width': 4,
+                'line-color': '#77ffda'
+            }
+        });
+
+
+
+
+        this.setState({
+            currentTileLayerID: currentTile.uuid
+        })
+
+
         // let imageBounds = [];
         //
         // // imageBounds.push([coords[0][1], coords[0][0]]);
@@ -120,27 +315,26 @@ export default class MapContainer extends React.Component {
 
         // L.imageOverlay(currentTile.localImageURL, imageBounds).addTo(this.mainMap);
 
-        var topleft    = L.latLng(coords[0][1], coords[0][0]),
-            topright   = L.latLng(coords[1][1], coords[1][0]),
-            bottomleft = L.latLng(coords[3][1], coords[3][0]),
-            bottomright = L.latLng(coords[2][1], coords[2][0]);
-
-        // imageoverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, {
-        //     opacity: 0.7,
+        // var topleft    = L.latLng(coords[0][1], coords[0][0]),
+        //     topright   = L.latLng(coords[1][1], coords[1][0]),
+        //     bottomleft = L.latLng(coords[3][1], coords[3][0]),
+        //     bottomright = L.latLng(coords[2][1], coords[2][0]);
+        //
+        // // imageoverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, {
+        // //     opacity: 0.7,
+        // //     interactive: true,
+        // //     attribution: "ESA-Sentinel2"
+        // // }).addTo(this.mainMap);
+        //
+        // console.log('Calling image overlay rotated')
+        //
+        // L.imageOverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, bottomright, {
+        //     opacity: 0.9,
         //     interactive: true,
         //     attribution: "ESA-Sentinel2"
         // }).addTo(this.mainMap);
 
-        console.log('Calling image overlay rotated')
-
-        L.imageOverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, bottomright, {
-            opacity: 0.9,
-            interactive: true,
-            attribution: "ESA-Sentinel2"
-        }).addTo(this.mainMap);
-
     }
-
 
     getBoundsInMGRS(inputCoords) {
 
@@ -152,10 +346,13 @@ export default class MapContainer extends React.Component {
 
         let fn = coordinator('latlong', 'mgrs');
 
+        console.log('input coords', inputCoords)
+
         for (let coord of inputCoords) {
 
             console.log(coord)
             console.log(coord.lat, coord.lng)
+
             mgrsValues.push(fn(coord.lat, coord.lng, 5));
         }
 
@@ -235,32 +432,63 @@ export default class MapContainer extends React.Component {
                     //     imageSrc: objUrl
                     // });
 
-                    var imageBounds = [];
-
-                    imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][3]);
-                    imageBounds.push(jsonMetadata.tileGeometry.coordinates[0][1]);
-
                     that.setState({currentTileInfo: jsonMetadata});
 
+                    let coords = jsonMetadata.tileGeometry.coordinates[0];
+
+                    let latLngCoords = []
+
+                    for (let coord of coords) {
+
+                        let utmToLatLng = coordinator('utm', 'latlong')
+
+                        let convCoord = utmToLatLng(coord[1], coord[0], jsonMetadata.utmZone);
+
+
+                        latLngCoords.push([convCoord.longitude, convCoord.latitude])
+                    }
+
+                    console.log(latLngCoords);
+
+                    latLngCoords.pop();
+
+
+                    this.map.addSource(jsonMetadata.productName + 'source', {
+                        type: 'image',
+                        url: objUrl,
+                        coordinates: latLngCoords
+                    });
+
+                    // this.map.addSource(jsonMetadata.productName, {
+                    //     type: 'geojson',
+                    //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
+                    // });
+
+                    this.map.addLayer({
+                        id: jsonMetadata.productName + 'layer',
+                        type: 'raster',
+                        source: jsonMetadata.productName + 'source'
+                    });
+
                     // convert to lat long from UTM zone
-                    let imageBoundsLatLong = [];
+                    // let imageBoundsLatLong = [];
 
-                    var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                    var coord = item.latLng();
-
-                    var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                    var coord2 = item2.latLng();
-
-
-                    console.log('coords, ', coord, coord2);
-
-                    imageBoundsLatLong.push([coord.lat, coord.lng]);
-                    imageBoundsLatLong.push([coord2.lat, coord2.lng]);
-
-                    console.log(imageBoundsLatLong);
-                    var imageUrl = this.state.imageSrc;
-
-                    L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
+                    // var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
+                    // var coord = item.latLng();
+                    //
+                    // var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
+                    // var coord2 = item2.latLng();
+                    //
+                    //
+                    // console.log('coords, ', coord, coord2);
+                    //
+                    // imageBoundsLatLong.push([coord.lat, coord.lng]);
+                    // imageBoundsLatLong.push([coord2.lat, coord2.lng]);
+                    //
+                    // console.log(imageBoundsLatLong);
+                    // var imageUrl = this.state.imageSrc;
+                    //
+                    // L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
 
 
                 } else {
@@ -454,26 +682,6 @@ export default class MapContainer extends React.Component {
                     }
 
 
-                    console.log('What does our data have: ', localList[0])
-
-                    let geoJsonString = JSON.stringify(localList[0].footprint);
-
-                    console.log(geoJsonString);
-
-                    // L.geoJSON(geoJsonString).addTo(that.mainMap);
-                    console.log('UPDDDDDATING!');
-
-                    let newArray = [];
-                    newArray.push(localList[0].footprint);
-
-
-                    newArray[0].name = localList[0].product_name;
-
-                    console.log(newArray)
-                    this.setState({
-                        geoJson: newArray
-                    });
-
                     // Check for the various File API support.
                     // if (window.File && window.FileReader && window.FileList && window.Blob) {
                     //     // Great success! All the File APIs are supported.
@@ -517,41 +725,113 @@ export default class MapContainer extends React.Component {
 
     }
 
+    //
+    // _onEditPath(e) {
+    //     console.log('path was edited - ', e)
+    // }
+    //
+    // _onCreate(e) {
+    //     console.log('path was created - ', e);
+    //     console.log(e.layer.getLatLngs());
+    //     let coords = e.layer.getLatLngs()[0];
+    //
+    //     let coordArray = [];
+    //
+    //     for (let coord of coords) {
+    //         console.log(coord)
+    //
+    //
+    //         console.log('org coord', coord)
+    //         console.log('wrapped coord', coord.wrap())
+    //
+    //         coordArray.push(coord.wrap())
+    //     }
+    //
+    //     console.log("coordarray is", coordArray)
+    //     this.getBoundsInMGRS(coordArray);
+    // }
+    //
+    // _onDeleted(e) {
+    // }
+    //     console.log('path was Deleted - ', e)
 
-    _onEditPath(e) {
-        console.log('path was edited - ', e)
+    callback = (reference) => {
+        console.log(this)
+        console.log(reference)
     }
 
-    _onCreate(e) {
-        console.log('path was created - ', e);
-        console.log(e.layer.getLatLngs());
-        let coords = e.layer.getLatLngs()[0];
-
-        let coordArray = [];
-
-        for (let coord of coords) {
-            console.log(coord)
-
-
-            console.log('org coord', coord)
-            console.log('wrapped coord', coord.wrap())
-
-            coordArray.push(coord.wrap())
-        }
-
-        console.log("coordarray is", coordArray)
-        this.getBoundsInMGRS(coordArray);
-    }
-
-    _onDeleted(e) {
-        console.log('path was Deleted - ', e)
-    }
 
     render() {
 
-        var southWest = new L.LatLng(-90, -200);
-        var northEast = new L.LatLng(90, 200);
-        var restrictBounds = new L.LatLngBounds(southWest, northEast);
+        // check if there are any new things to be drawn
+
+
+        for (let name of this.layerList) {
+            this.map.removeLayer(name);
+
+
+        }
+        this.layerList = [];
+
+        let currentTiles = this.state.tileFootprint;
+        console.log('current Tiles', currentTiles);
+
+        for (let tile of currentTiles) {
+
+            let currentSearchFootprint = this.map.getSource(tile.name + 'source');
+
+            if (currentSearchFootprint !== undefined) {
+                console.log('this layer already exists, updating')
+                // do not need to update, if that tile exists thats fine
+                // what we should do here first is remove all tiles
+
+                //currentSearchFootprint.setData(tile)
+
+                this.layerList.push(tile.name + 'layer');
+
+                this.map.addLayer({
+                    id: tile.name + 'layer',
+                    type: 'line',
+                    source: tile.name + 'source'
+                });
+
+
+            } else {
+
+                let source = this.map.getSource(tile.name + 'source');
+
+                if (source === undefined) {
+
+                    this.map.addSource(tile.name + 'source', {
+                        type: 'geojson',
+                        data: tile
+                    });
+                } else {
+                    source.setData(tile);
+                }
+
+
+                this.layerList.push(tile.name + 'layer');
+
+                this.map.addLayer({
+                    id: tile.name + 'layer',
+                    type: 'line',
+                    source: tile.name + 'source'
+                });
+
+
+
+            }
+
+
+
+        }
+
+
+
+        // var southWest = new L.LatLng(-90, -200);
+        // var northEast = new L.LatLng(90, 200);
+        // var restrictBounds = new L.LatLngBounds(southWest, northEast);
 
 
         let imageSrc = this.state.imageSrc;
@@ -564,64 +844,103 @@ export default class MapContainer extends React.Component {
             backgroundImage: "url(" + this.state.imageSrc + ")",
             backgroundSize: "contain"
         };
-
-
-
-        let currentTileFootprint = () => {
-            let style = {
-                "color": "#ff7800",
-                "weight": 5,
-                "opacity": 0.65
-            };
-
-            if (this.state.currentTileID !== "") {
-                let currentTileFootprint = this.state.resultsList.find((obj) => obj.uuid === this.state.currentTileID).footprint;
-                console.log(currentTileFootprint);
-                return (
-                    <GeoJSON key={this.state.currentTileID} data={currentTileFootprint} style={style} />
-                );
+        const style =  {
+            gridColumn: "span 1",
+            gridRow: "span 1",
+            minHeight: "40vh",
+            minWidth: "50vw"
             }
-        }
+        ;
+
+
+
+            // let currentTileFootprint = () => {
+        //     let style = {
+        //         "color": "#ff7800",
+        //         "weight": 5,
+        //         "opacity": 0.65
+        //     };
+        //
+        //     if (this.state.currentTileID !== "") {
+        //         let currentTileFootprint = this.state.resultsList.find((obj) => obj.uuid === this.state.currentTileID).footprint;
+        //         console.log(currentTileFootprint);
+        //         return (
+        //             <GeoJSON key={this.state.currentTileID} data={currentTileFootprint} style={style} />
+        //         );
+        //     }
+        // }
 
         return (
             <div className='grid-container'>
-                <Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>
-                    <FeatureGroup>
-                        <EditControl
-                            position='topright'
-                            onEdited={this._onEditPath}
-                            onCreated={this._onCreate}
-                            onDeleted={this._onDeleted}
-                            draw={{
-                                marker: false,
-                                polyline: false,
-                                circle: false
-                            }}
-                        />
-                        <Circle center={[51.51, -0.06]} radius={200} />
-                    </FeatureGroup>
-                    <TileLayer
-                        url='http://{s}.tile.osm.org/{z}/{x}/{y}.png'
-                        attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
-                        // noWrap='false'
-                    />
+                {/*<Map*/}
+                    {/*ref={(butt) => { this.mapContainer = butt; }}*/}
+                    {/*style="mapbox://styles/mapbox/streets-v9"*/}
+                    {/*containerStyle={{*/}
+                        {/*height: "50vh",*/}
+                        {/*width: "50vw",*/}
+                        {/*gridColumn: "span 1"*/}
+                    {/*}}*/}
+                    {/*onClick={this.clickHandler}*/}
+                    {/*drawCreate={this.polygonCreated}*/}
+                    {/*onRender={this.mapRendered}*/}
+                    {/*>*/}
+                    {/*<DrawControl*/}
+                        {/*ref={(drawControl) => { this.drawControl = drawControl; }}*/}
+                        {/*displayControlsDefault={false}*/}
+                        {/*controls={{*/}
+                            {/*polygon: true,*/}
+                            {/*trash: true*/}
+                        {/*}}*/}
+                        {/*create={this.polygonCreated}*/}
+                    {/*/>*/}
+                    {/*<Layer*/}
+                        {/*type="symbol"*/}
+                        {/*id="marker"*/}
+                        {/*layout={{ "icon-image": "harbor-15" }}>*/}
+                        {/*<Feature coordinates={[-0.481747846041145, 51.3233379650232]}/>*/}
+                    {/*</Layer>*/}
+                {/*</Map>*/}
 
-                    {this.state.tileFootprint.map((obj) =>{
-                        return (
-                            <GeoJSON key={obj.name} data={obj} style="" />
-                        );
-                    })}
+                <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
 
 
-                    {currentTileFootprint()}
+                {/*<Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>*/}
+                    {/*<FeatureGroup>*/}
+                        {/*<EditControl*/}
+                            {/*position='topright'*/}
+                            {/*onEdited={this._onEditPath}*/}
+                            {/*onCreated={this._onCreate}*/}
+                            {/*onDeleted={this._onDeleted}*/}
+                            {/*draw={{*/}
+                                {/*marker: false,*/}
+                                {/*polyline: false,*/}
+                                {/*circle: false*/}
+                            {/*}}*/}
+                        {/*/>*/}
+                        {/*<Circle center={[51.51, -0.06]} radius={200} />*/}
+                    {/*</FeatureGroup>*/}
+                    {/*<TileLayer*/}
+                        {/*url='http://{s}.tile.osm.org/{z}/{x}/{y}.png'*/}
+                        {/*attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'*/}
+                        {/*// noWrap='false'*/}
+                    {/*/>*/}
+
+                    {/*{this.state.tileFootprint.map((obj) =>{*/}
+                        {/*return (*/}
+                            {/*<GeoJSON key={obj.name} data={obj} style="" />*/}
+                        {/*);*/}
+                    {/*})}*/}
 
 
-                    <Marker position={position}>
-                        <Popup>
-                            <span>A pretty CSS3 popup.<br/>Easily customizable.</span>
-                        </Popup>
-                    </Marker>
-                </Map>
+                    {/*{currentTileFootprint()}*/}
+
+
+                    {/*<Marker position={position}>*/}
+                        {/*<Popup>*/}
+                            {/*<span>A pretty CSS3 popup.<br/>Easily customizable.</span>*/}
+                        {/*</Popup>*/}
+                    {/*</Marker>*/}
+                {/*</Map>*/}
                 <div className="resultList">
                     <h3>Query Results</h3>
                     <ul>

@@ -59,6 +59,9 @@ var config = {
     },
     externals: {
         'Config': JSON.stringify(mode ? require('./s2-tl.config.json') : require('./s2-tl.config.json'))
+    },
+    node: {
+        fs: "empty"
     }
 };
 
