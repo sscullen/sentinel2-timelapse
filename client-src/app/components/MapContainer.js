@@ -192,98 +192,107 @@ export default class MapContainer extends React.Component {
 
         var myArray = myRE.exec(currentTile.product_name);
 
-        let tileUTM = myArray[0].slice(1);
-
-        console.log('TileUTM ident', tileUTM);
-
-        // get the right footprint from the list of tile foot prints
-
-        let currentFootprint = this.state.tileFootprint.filter((tile) => tile.name === tileUTM)[0];
-
-        let coords = currentFootprint.geometry.geometries[0].coordinates[0];
-
-        console.log('footprint geometry=================================================================', coords)
+        if (myArray !== null) {
 
 
-        if (this.map.getLayer(this.state.currentTileLayerID + 'footprint') !== undefined) {
-            this.map.removeLayer(this.state.currentTileLayerID + 'footprint');
-            this.map.removeLayer(this.state.currentTileLayerID + 'image');
+            let tileUTM = myArray[0].slice(1);
 
-            console.log('----------------------------------removed previous layer')
+            console.log('TileUTM ident', tileUTM);
+
+            // get the right footprint from the list of tile foot prints
+
+            let currentFootprint = this.state.tileFootprint.filter((tile) => tile.name === tileUTM)[0];
+
+            let coords = currentFootprint.geometry.geometries[0].coordinates[0];
+
+            console.log('footprint geometry=================================================================', coords)
 
 
-        }
+            if (this.map.getLayer(this.state.currentTileLayerID + 'footprint') !== undefined) {
+                this.map.removeLayer(this.state.currentTileLayerID + 'footprint');
+                this.map.removeLayer(this.state.currentTileLayerID + 'image');
 
-        let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
-        console.log(currentSource);
-        console.log('current footprint', currentFootprint);
+                console.log('----------------------------------removed previous layer')
 
-        // this.map.addSource(jsonMetadata.productName + 'source', {
-        //     type: 'image',
-        //     url: objUrl,
-        //     coordinates: latLngCoords
-        // });
-        //
-        // // this.map.addSource(jsonMetadata.productName, {
-        // //     type: 'geojson',
-        // //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
-        // // });
-        //
-        // this.map.addLayer({
-        //     id: jsonMetadata.productName + 'layer',
-        //     type: 'raster',
-        //     source: jsonMetadata.productName + 'source'
-        // });
-        //
 
-        if (currentSource === undefined) {
+            }
 
-            console.log('-------------------------------------Never encountered this source before, adding....')
+            let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
+            console.log(currentSource);
+            console.log('current footprint', currentFootprint);
 
-            this.map.addSource(currentTile.uuid + 'footprint', {
-                type: 'geojson',
-                data: currentTile.footprint
-            })
+            // this.map.addSource(jsonMetadata.productName + 'source', {
+            //     type: 'image',
+            //     url: objUrl,
+            //     coordinates: latLngCoords
+            // });
+            //
+            // // this.map.addSource(jsonMetadata.productName, {
+            // //     type: 'geojson',
+            // //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
+            // // });
+            //
+            // this.map.addLayer({
+            //     id: jsonMetadata.productName + 'layer',
+            //     type: 'raster',
+            //     source: jsonMetadata.productName + 'source'
+            // });
+            //
 
-            console.log(currentFootprint);
-            let imageFootprint = currentFootprint.geometry.geometries[0].coordinates[0];
+            if (currentSource === undefined) {
 
-            console.log('image footprint', imageFootprint)
+                console.log('-------------------------------------Never encountered this source before, adding....')
 
-            let imageThing = imageFootprint.map((item) => {
-                return [item[0], item[1]]
+                this.map.addSource(currentTile.uuid + 'footprint', {
+                    type: 'geojson',
+                    data: currentTile.footprint
+                })
+
+                console.log(currentFootprint);
+                let imageFootprint = currentFootprint.geometry.geometries[0].coordinates[0];
+
+                console.log('image footprint', imageFootprint)
+
+                let imageThing = imageFootprint.map((item) => {
+                    return [item[0], item[1]]
+                });
+
+                imageThing.pop()
+
+                console.log('image footprint 2', imageThing)
+
+                this.map.addSource(currentTile.uuid + 'image', {
+                    type: 'image',
+                    url: currentTile.localImageURL,
+                    coordinates: imageThing
+                })
+
+            }
+
+
+            console.log('---------------------------------------------------------adding this footprint to map... ')
+
+            this.map.addLayer({
+                id: currentTile.uuid + 'footprint',
+                type: 'line',
+                source: currentTile.uuid + 'footprint',
+                paint: {
+                    'line-width': 5,
+                    'line-color': '#ff88da'
+                }
             });
 
-            imageThing.pop()
+            this.map.addLayer({
+                id: currentTile.uuid + 'image',
+                type: 'raster',
+                source: currentTile.uuid + 'image'
+            });
 
-            console.log('image footprint 2', imageThing)
 
-            this.map.addSource(currentTile.uuid + 'image', {
-                type: 'image',
-                url: currentTile.localImageURL,
-                coordinates: imageThing
-            })
+        } else {
+            console.log('We dont know the tile ID, (its not in the product name');
 
         }
-
-
-        console.log('---------------------------------------------------------adding this footprint to map... ')
-
-        this.map.addLayer({
-            id: currentTile.uuid + 'footprint',
-            type: 'line',
-            source: currentTile.uuid + 'footprint',
-            paint: {
-                'line-width': 5,
-                'line-color': '#ff88da'
-            }
-        });
-
-        this.map.addLayer({
-            id: currentTile.uuid + 'image',
-            type: 'raster',
-            source: currentTile.uuid + 'image'
-        });
 
         this.map.removeLayer("selection-id");
         this.map.addLayer({
