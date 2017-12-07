@@ -12,10 +12,6 @@ import React from 'react';
 import axios from 'axios';
 
 import coordinator from 'coordinator';
-// import utmToLatlng from 'utm-latlng';
-// //var utmConverter = require('utm');
-//
-// import utm from 'leaflet.utm';
 
 import "../style/_MapContainer.scss"
 
@@ -37,18 +33,10 @@ export default class MapContainer extends React.Component {
     constructor(props) {
         super(props);
 
-
         this.getBoundsInMGRS = this.getBoundsInMGRS.bind(this);
-
         this.clickHandler = this.clickHandler.bind(this);
-
-        // this.drawControl = this.drawControl.bind(this);
-
-
         this.toggleAmazonAPI = this.toggleAmazonAPI.bind(this);
-
         this.handleZoomChange = this.handleZoomChange.bind(this);
-
         this.setCurrentTile = this.setCurrentTile.bind(this);
 
         this.layerList = [];
@@ -56,7 +44,7 @@ export default class MapContainer extends React.Component {
         this.state = {
             imageSrc: "./app/static/img.jpg",
             currentTileInfo: {},
-            amazonAPI: true,
+            amazonAPI: false,
             resultsList: [],
             geoJson: [],
             tileFootprint: [],
@@ -64,15 +52,15 @@ export default class MapContainer extends React.Component {
             currentTileLayerID: "",
             selectionID: ""
         };
-
-
     }
 
     componentDidMount() {
 
         this.map = new mapboxgl.Map({
             container: this.mapContainer,
-            style: 'mapbox://styles/mapbox/streets-v9'
+            style: 'mapbox://styles/mapbox/streets-v9',
+            center: [0, 54],
+            zoom: 5
         });
 
         this.map.on('click', (e) => {
@@ -113,10 +101,6 @@ export default class MapContainer extends React.Component {
                selectionSource.setData(feature.features[0])
            }
 
-
-
-
-
            let coordsLatLng = []
 
             for (let coord of coords) {
@@ -132,7 +116,6 @@ export default class MapContainer extends React.Component {
 
             console.log('finishing coords', coordsLatLng)
 
-
            this.getBoundsInMGRS(coordsLatLng)
 
         });
@@ -145,10 +128,6 @@ export default class MapContainer extends React.Component {
 
     componentDidUpdate() {
         console.log('component updated')
-        // this.drawControl.on('draw.create', (features) => {
-        //     console.log('did thiss finally work?', features);
-        // });
-
     }
 
     clickHandler(map, evt) {
@@ -169,8 +148,6 @@ export default class MapContainer extends React.Component {
 
         if (event.target._zoom > 5) {
             console.log('Zoom level is greater than 5...')
-
-
         }
     }
 
@@ -183,61 +160,35 @@ export default class MapContainer extends React.Component {
             currentTileID: uuid
         });
 
-
         let currentTile = this.state.resultsList.filter((tile) => tile.uuid === uuid)[0]
         console.log('currentTile', currentTile);
-
 
         let myRE = /T\d{1,2}[A-Z]{3}/;
 
         var myArray = myRE.exec(currentTile.product_name);
 
         if (myArray !== null) {
-
-
             let tileUTM = myArray[0].slice(1);
 
             console.log('TileUTM ident', tileUTM);
 
             // get the right footprint from the list of tile foot prints
-
             let currentFootprint = this.state.tileFootprint.filter((tile) => tile.name === tileUTM)[0];
 
             let coords = currentFootprint.geometry.geometries[0].coordinates[0];
 
             console.log('footprint geometry=================================================================', coords)
 
-
             if (this.map.getLayer(this.state.currentTileLayerID + 'footprint') !== undefined) {
                 this.map.removeLayer(this.state.currentTileLayerID + 'footprint');
                 this.map.removeLayer(this.state.currentTileLayerID + 'image');
 
                 console.log('----------------------------------removed previous layer')
-
-
             }
 
             let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
             console.log(currentSource);
             console.log('current footprint', currentFootprint);
-
-            // this.map.addSource(jsonMetadata.productName + 'source', {
-            //     type: 'image',
-            //     url: objUrl,
-            //     coordinates: latLngCoords
-            // });
-            //
-            // // this.map.addSource(jsonMetadata.productName, {
-            // //     type: 'geojson',
-            // //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
-            // // });
-            //
-            // this.map.addLayer({
-            //     id: jsonMetadata.productName + 'layer',
-            //     type: 'raster',
-            //     source: jsonMetadata.productName + 'source'
-            // });
-            //
 
             if (currentSource === undefined) {
 
@@ -266,9 +217,7 @@ export default class MapContainer extends React.Component {
                     url: currentTile.localImageURL,
                     coordinates: imageThing
                 })
-
             }
-
 
             console.log('---------------------------------------------------------adding this footprint to map... ')
 
@@ -291,7 +240,6 @@ export default class MapContainer extends React.Component {
 
         } else {
             console.log('We dont know the tile ID, (its not in the product name');
-
         }
 
         this.map.removeLayer("selection-id");
@@ -305,44 +253,9 @@ export default class MapContainer extends React.Component {
             }
         });
 
-
-
-
         this.setState({
             currentTileLayerID: currentTile.uuid
         })
-
-
-        // let imageBounds = [];
-        //
-        // // imageBounds.push([coords[0][1], coords[0][0]]);
-        // // imageBounds.push([coords[2][1], coords[2][0]]);
-        // //
-        //
-        // console.log('Image bounds:', imageBounds);
-
-
-        // L.imageOverlay(currentTile.localImageURL, imageBounds).addTo(this.mainMap);
-
-        // var topleft    = L.latLng(coords[0][1], coords[0][0]),
-        //     topright   = L.latLng(coords[1][1], coords[1][0]),
-        //     bottomleft = L.latLng(coords[3][1], coords[3][0]),
-        //     bottomright = L.latLng(coords[2][1], coords[2][0]);
-        //
-        // // imageoverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, {
-        // //     opacity: 0.7,
-        // //     interactive: true,
-        // //     attribution: "ESA-Sentinel2"
-        // // }).addTo(this.mainMap);
-        //
-        // console.log('Calling image overlay rotated')
-        //
-        // L.imageOverlay.rotated(currentTile.localImageURL, topleft, topright, bottomleft, bottomright, {
-        //     opacity: 0.9,
-        //     interactive: true,
-        //     attribution: "ESA-Sentinel2"
-        // }).addTo(this.mainMap);
-
     }
 
     getBoundsInMGRS(inputCoords) {
@@ -367,11 +280,9 @@ export default class MapContainer extends React.Component {
 
         console.log('MGRS coords')
 
-
         let postObject = {
             coords: mgrsValues
         };
-
 
         let that = this;
 
@@ -379,14 +290,12 @@ export default class MapContainer extends React.Component {
             axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
 
                 console.log(response);
-
                 //reset captcha after submission result (SOMEHOW)
                 if (response.status === 200) {
 
                     console.log('it was a success')
 
                     // how to add an image raster to the map using the mainMap reference
-
                     // Check for the various File API support.
                     if (window.File && window.FileReader && window.FileList && window.Blob) {
                         // Great success! All the File APIs are supported.
@@ -402,7 +311,6 @@ export default class MapContainer extends React.Component {
                     console.log(sizeArray1);
                     console.log(dv.getInt32())
 
-
                     let imageOffset = dv.getInt32();
 
                     dv = new DataView(sizeArray2, 0);
@@ -415,8 +323,6 @@ export default class MapContainer extends React.Component {
                     let jsonArray = response.data.slice(8 + imageOffset);
 
                     let imageArray = response.data.slice(8 ,8 + imageOffset);
-
-
 
                     let blob = new Blob([imageArray], {type: 'image/jpeg'});
 
@@ -432,15 +338,6 @@ export default class MapContainer extends React.Component {
 
                     let jsonMetadata = JSON.parse(decodedString);
 
-                    //
-                    // let blob = new Blob([response.data], {type: 'image/jpeg'});
-                    //
-                    // let objUrl = window.URL.createObjectURL(blob);
-                    //
-                    // that.setState({
-                    //     imageSrc: objUrl
-                    // });
-
                     that.setState({currentTileInfo: jsonMetadata});
 
                     let coords = jsonMetadata.tileGeometry.coordinates[0];
@@ -453,7 +350,6 @@ export default class MapContainer extends React.Component {
 
                         let convCoord = utmToLatLng(coord[1], coord[0], jsonMetadata.utmZone);
 
-
                         latLngCoords.push([convCoord.longitude, convCoord.latitude])
                     }
 
@@ -461,17 +357,11 @@ export default class MapContainer extends React.Component {
 
                     latLngCoords.pop();
 
-
                     this.map.addSource(jsonMetadata.productName + 'source', {
                         type: 'image',
                         url: objUrl,
                         coordinates: latLngCoords
                     });
-
-                    // this.map.addSource(jsonMetadata.productName, {
-                    //     type: 'geojson',
-                    //     data: 'https://d2ad6b4ur7yvpq.cloudfront.net/naturalearth-3.3.0/ne_10m_ports.geojson'
-                    // });
 
                     this.map.addLayer({
                         id: jsonMetadata.productName + 'layer',
@@ -479,42 +369,17 @@ export default class MapContainer extends React.Component {
                         source: jsonMetadata.productName + 'source'
                     });
 
-                    // convert to lat long from UTM zone
-                    // let imageBoundsLatLong = [];
-
-                    // var item = L.utm({x: imageBounds[0][0], y: imageBounds[0][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                    // var coord = item.latLng();
-                    //
-                    // var item2 = L.utm({x: imageBounds[1][0], y: imageBounds[1][1], zone: jsonMetadata.utmZone, band: jsonMetadata.latitudeBand});
-                    // var coord2 = item2.latLng();
-                    //
-                    //
-                    // console.log('coords, ', coord, coord2);
-                    //
-                    // imageBoundsLatLong.push([coord.lat, coord.lng]);
-                    // imageBoundsLatLong.push([coord2.lat, coord2.lng]);
-                    //
-                    // console.log(imageBoundsLatLong);
-                    // var imageUrl = this.state.imageSrc;
-                    //
-                    // L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
-
-
                 } else {
 
                     console.log('it was not a success')
                 }
 
-
-
-            })
-                .catch(function (error) {
-                    console.log(error);
-                    console.log('something went wrong')
-                });
+            }).catch(function (error) {
+                console.log(error);
+                console.log('something went wrong')
+            });
 
         } else {
-
 
             console.log('not using the AmazonAPI')
 
@@ -555,7 +420,6 @@ export default class MapContainer extends React.Component {
             axios.get(config.server_address + '/openaccessdatahub?' + queryStr, {responseType: 'json'}).then((response) => {
 
                 console.log(response);
-
                 //reset captcha after submission result (SOMEHOW)
                 if (response.status === 200) {
 
@@ -577,9 +441,7 @@ export default class MapContainer extends React.Component {
                         item.localImageURL = objUrl;
 
                         localList.push(item);
-
                     }
-
 
                     this.setState({
                         resultsList: [...localList]
@@ -587,13 +449,11 @@ export default class MapContainer extends React.Component {
 
                     // Load the footprints for the retrieved data
                     // First get teh uniq tile zones in the retrieved data
-
                     let uniqUTMZone = [];
 
                     for (let thing of this.state.resultsList) {
 
                         console.log('local data list item', thing);
-
                         // load the reference tile for this geojson
                         console.log('ProductName', thing.product_name)
 
@@ -603,15 +463,11 @@ export default class MapContainer extends React.Component {
                         if (myArray) {
 
                             console.log('Full Zone Name: ', myArray[0]);
-
-
                             uniqUTMZone.push(myArray[0]);
 
                         } else {
                             console.log('this is a multi-feature data product (not a single tile)')
                         }
-
-
                     }
 
                     let uniqUTMZoneSet = new Set(uniqUTMZone);
@@ -619,7 +475,6 @@ export default class MapContainer extends React.Component {
                     let uniqJustUTM = {};
 
                     for (let thing of uniqUTMZoneSet) {
-
                         console.log('THING ------------------------------------------------------- ', thing);
 
                         let justUTM = thing.slice(1, 3);
@@ -637,19 +492,14 @@ export default class MapContainer extends React.Component {
                         } else {
                             uniqJustUTM[justUTM].push(thing.slice(3, 6));
                         }
-
                     }
 
-
                     console.log('list of files to open for footprint', uniqJustUTM);
-
 
                     for (let zoneIndex in uniqJustUTM) {
 
                         let fileStringComplete = './app/static/' + zoneIndex + '.geojson';
-
                         console.log(fileStringComplete)
-
                         let that = this;
 
                         fetch(fileStringComplete).then(function(response) {
@@ -658,26 +508,18 @@ export default class MapContainer extends React.Component {
                         }).then(function(myJSON) {
 
                             console.log(myJSON)
-
                             var newArray = that.state.tileFootprint.slice();
-
                             for(let listItem of uniqJustUTM[zoneIndex]) {
 
                                 console.log("list item", listItem);
-
                                 for (let feature of myJSON.features) {
-
                                     if (feature.properties.name.slice(-3) === listItem) {
-
-
                                         feature.name = zoneIndex + listItem;
                                         console.log(feature);
 
                                         newArray.push(feature);
-
                                     }
                                 }
-
                                 console.log('New Array: ', newArray)
                             }
 
@@ -685,100 +527,30 @@ export default class MapContainer extends React.Component {
                                 tileFootprint: newArray
                             })
                         });
-
-
-
                     }
 
-
-                    // Check for the various File API support.
-                    // if (window.File && window.FileReader && window.FileList && window.Blob) {
-                    //     // Great success! All the File APIs are supported.
-                    //     console.log('The File APIs are fully supported')
-                    // } else {
-                    //     console.log('The File APIs are not fully supported in this browser.');
-                    // }
-
-                    // var imageUrl = 'http://www.lib.utexas.edu/maps/historical/newark_nj_1922.jpg',
-                    //     imageBounds = [[40.712216, -74.22655], [40.773941, -74.12544]];
-                    //     L.imageOverlay(imageUrl, imageBounds).addTo(that.mainMap);
-                    //
-                    //let fileReader = new FileReader();
-                    //console.log(response.data)
-
-
-                    //
-                    // imageBoundsLatLong.push([coord.lat, coord.lng]);
-                    // imageBoundsLatLong.push([coord2.lat, coord2.lng]);
-                    //
-                    // console.log(imageBoundsLatLong);
-                    // var imageUrl = this.state.imageSrc;
-                    //
-                    // L.imageOverlay(imageUrl, imageBoundsLatLong).addTo(that.mainMap);
-
-
                 } else {
-
+                    // something went wrong
                     console.log('it was not a success')
                 }
-
-
 
             }).catch(function (error) {
                     console.log(error);
                     console.log('something went wrong')
-                });
+            });
         }
 
-
-
     }
-
-    //
-    // _onEditPath(e) {
-    //     console.log('path was edited - ', e)
-    // }
-    //
-    // _onCreate(e) {
-    //     console.log('path was created - ', e);
-    //     console.log(e.layer.getLatLngs());
-    //     let coords = e.layer.getLatLngs()[0];
-    //
-    //     let coordArray = [];
-    //
-    //     for (let coord of coords) {
-    //         console.log(coord)
-    //
-    //
-    //         console.log('org coord', coord)
-    //         console.log('wrapped coord', coord.wrap())
-    //
-    //         coordArray.push(coord.wrap())
-    //     }
-    //
-    //     console.log("coordarray is", coordArray)
-    //     this.getBoundsInMGRS(coordArray);
-    // }
-    //
-    // _onDeleted(e) {
-    // }
-    //     console.log('path was Deleted - ', e)
 
     callback = (reference) => {
         console.log(this)
         console.log(reference)
     }
 
-
     render() {
-
-        // check if there are any new things to be drawn
-
 
         for (let name of this.layerList) {
             this.map.removeLayer(name);
-
-
         }
         this.layerList = [];
 
@@ -788,7 +560,6 @@ export default class MapContainer extends React.Component {
         for (let tile of currentTiles) {
 
             let currentSearchFootprint = this.map.getSource(tile.name + 'source');
-
             if (currentSearchFootprint !== undefined) {
                 console.log('this layer already exists, updating')
                 // do not need to update, if that tile exists thats fine
@@ -804,13 +575,11 @@ export default class MapContainer extends React.Component {
                     source: tile.name + 'source'
                 });
 
-
             } else {
 
                 let source = this.map.getSource(tile.name + 'source');
 
                 if (source === undefined) {
-
                     this.map.addSource(tile.name + 'source', {
                         type: 'geojson',
                         data: tile
@@ -827,21 +596,8 @@ export default class MapContainer extends React.Component {
                     type: 'line',
                     source: tile.name + 'source'
                 });
-
-
-
             }
-
-
-
         }
-
-
-
-        // var southWest = new L.LatLng(-90, -200);
-        // var northEast = new L.LatLng(90, 200);
-        // var restrictBounds = new L.LatLngBounds(southWest, northEast);
-
 
         let imageSrc = this.state.imageSrc;
 
@@ -853,31 +609,12 @@ export default class MapContainer extends React.Component {
             backgroundImage: "url(" + this.state.imageSrc + ")",
             backgroundSize: "contain"
         };
-        const style =  {
+        const style = {
             gridColumn: "span 1",
             gridRow: "span 1",
             minHeight: "40vh",
             minWidth: "50vw"
-            }
-        ;
-
-
-
-            // let currentTileFootprint = () => {
-        //     let style = {
-        //         "color": "#ff7800",
-        //         "weight": 5,
-        //         "opacity": 0.65
-        //     };
-        //
-        //     if (this.state.currentTileID !== "") {
-        //         let currentTileFootprint = this.state.resultsList.find((obj) => obj.uuid === this.state.currentTileID).footprint;
-        //         console.log(currentTileFootprint);
-        //         return (
-        //             <GeoJSON key={this.state.currentTileID} data={currentTileFootprint} style={style} />
-        //         );
-        //     }
-        // }
+        };
 
         return (
             <div className='grid-container'>
