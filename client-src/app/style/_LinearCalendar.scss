@@ -1,0 +1,11 @@
+.linearCalendar {
+
+    background: lightblue;
+    grid-column: span 2;
+
+    // divs inside linearCalendar go here
+    .otherDiv {
+      color: red;
+    }
+
+}

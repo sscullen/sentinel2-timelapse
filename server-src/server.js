@@ -68,7 +68,6 @@ app.listen(port, () => {
 const getPreviewImage = (obj, base64String) => {
 
     return new Promise((resolve, reject) => {
-
         // Quicklookurl https://scihub.copernicus.eu/dhus/odata/v1/Products('f4d9d5b2-48de-4f64-b4c9-16ad52222f6c')/Products('Quicklook')/$value
         const justPath = obj.quicklookURL.slice(28);
 
@@ -78,43 +77,50 @@ const getPreviewImage = (obj, base64String) => {
             auth:  sentinelUser + ':' + sentinelPass
         };
 
-        https.request(options, (response) => {
+        try {
+            https.request(options, (response) => {
 
-            var data = [];
+                var data = [];
 
-            console.log(response.headers)
-            console.log(typeof(response.statusCode))
+                console.log(response.headers)
+                console.log(typeof(response.statusCode))
 
-            if (response.statusCode === 404) {
-                console.log('status code is 404')
-                return reject('not found')
-            } else if(response.statusCode === 401) {
+                if (response.statusCode === 404) {
+                    console.log('status code is 404')
+                    return reject('not found')
+                } else if(response.statusCode === 401) {
 
-                console.log('status code is un-authorized')
-                return reject('not authorized')
-            }
-
-            //another chunk of data has been recieved, so append it to `str`
-            response.on('data', function (chunk) {
-                console.log('chunk recieved ----------------')
-                data.push(chunk);
-            });
-
-            //the whole response has been recieved, so we just print it out here
-            response.on('end', function () {
-                console.log('everything has been received! --------------------------------------');
-
-                let finalBuffer = Buffer.concat(data);
-
-                if (base64String === true) {
-                    obj.imagebuffer = finalBuffer.toString('base64');
-                    resolve(obj);
-                } else {
-                    obj.imagebuffer = finalBuffer;
-                    resolve(obj);
+                    console.log('status code is un-authorized')
+                    return reject('not authorized')
                 }
-            });
-        }).end();
+
+                //another chunk of data has been recieved, so append it to `str`
+                response.on('data', function (chunk) {
+                    console.log('binary chunk recieved ----------------')
+                    data.push(chunk);
+                });
+
+                //the whole response has been recieved, so we just print it out here
+                response.on('end', function () {
+                    console.log('image buffer has been received! --------------------------------------');
+
+                    let finalBuffer = Buffer.concat(data);
+
+                    if (base64String === true) {
+                        obj.imagebuffer = finalBuffer.toString('base64');
+
+                        console.log('resolving promise with image buffer converted to base64 string');
+                        resolve(obj);
+                    } else {
+                        obj.imagebuffer = finalBuffer;
+                        resolve(obj);
+                    }
+                });
+            }).end();
+        } catch (err) {
+            console.log('Something went wrong fetching the preview image....', err);
+        }
+
     });
 };
 
@@ -346,7 +352,9 @@ app.get('/openaccessdatahub', (req, res) => {
         Promise.all(promiseList).then((result) => {
             //console.log(result);
             res.send(JSON.stringify(result));
+            console.log('all done! Everything was transferred to client successfully====================================');
         });
+
 
     }, (err) => {
         console.log('the promise was rejected, ', err)

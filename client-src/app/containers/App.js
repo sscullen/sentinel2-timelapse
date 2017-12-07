@@ -5,7 +5,7 @@ import { connect } from 'react-redux'
 
 import { User } from '../components/User'
 import Main  from '../components/Main'
-import MapContainer from '../components/MapContainer'
+import MapContainer from '../components/Main'
 
 // import redux actions for convience
 import { setName, setAge } from '../actions/userActions'

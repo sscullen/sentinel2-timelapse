@@ -1,0 +1,69 @@
+$btn-font-weight:bold;
+
+//.mainContainer {
+//  margin-top: 50px;
+//}
+//
+//.feature-container {
+//  margin-top: 15px;
+//}
+//
+//textarea {
+//  resize: none;
+//  height: 15em;
+//}
+
+body {
+  width: 100%;
+  height: 100%;
+}
+
+.main {
+
+  display: grid;
+
+  //grid-template-columns: minmax(min-content, 2fr) minmax(max-content, 1fr);
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  grid-gap: 10px;
+
+  min-width: 100%;
+  height: 100%;
+
+    .mainMap {
+      // have to sync this height with the height in the declaration of <Map> inside MapContainer
+
+      height: 400px;
+      width: 100%;
+      margin: 0 auto;
+      margin-top: 20px;
+
+      grid-column: span 2;
+    }
+
+    .resultList {
+      grid-column: 2 / 3;
+      grid-row: 1 / 3;
+      overflow-x: scroll;
+      font-size: 0.8em;
+      overflox-y: scroll;
+      min-height: 0px;
+      max-height: 85vh;
+    }
+
+    .resultList img {
+
+      max-width: 100%;
+      border: 1px solid coral;
+    }
+
+    .tile-info {
+      grid-column: span 1;
+
+    }
+
+}
+
+
+
+//@import '~bootstrap/scss/bootstrap.scss';
