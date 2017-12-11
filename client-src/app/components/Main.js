@@ -7,6 +7,9 @@ import axios from 'axios';
 
 import coordinator from 'coordinator';
 
+import moment from 'moment';
+
+
 import "../style/_Main.scss";
 
 import config from 'Config';
@@ -20,7 +23,7 @@ import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 
 // Components
 import LinearCalendar from './LinearCalendar';
-
+import ResultItem from './ResultItem';
 
 const position = [51.505, -0.09];
 
@@ -36,6 +39,12 @@ export default class Main extends React.Component {
         this.toggleAmazonAPI = this.toggleAmazonAPI.bind(this);
         this.handleZoomChange = this.handleZoomChange.bind(this);
         this.setCurrentTile = this.setCurrentTile.bind(this);
+        this.toggleDeveloperCache = this.toggleDeveloperCache.bind(this);
+
+        this.keyDebouncer = false;
+        this.scrollDebouncer = false;
+        this.previousScrollTop = 0;
+        this.userScroll = false;
 
         this.layerList = [];
 
@@ -48,7 +57,11 @@ export default class Main extends React.Component {
             tileFootprint: [],
             currentTileID: "",
             currentTileLayerID: "",
-            selectionID: ""
+            selectionID: "",
+            requestStarted: undefined,
+            requestTime: 0,
+            currentResultNumber: 0,
+            developerCache: false
         };
     }
 
@@ -63,6 +76,14 @@ export default class Main extends React.Component {
 
         this.map.on('click', (e) => {
             console.log('map clicked', e)
+        });
+
+        let scrollContainer = document.getElementsByClassName('scrollContainer')[0];
+
+        document.addEventListener('mousewheel', () => {
+
+            this.userScroll = true;
+            console.log('this is the user')
         });
 
         // Create a Draw control
@@ -118,6 +139,73 @@ export default class Main extends React.Component {
 
         });
 
+        document.addEventListener('keydown', (event) => {
+
+            let timeout;
+
+            if (this.keyDebouncer === false) {
+
+                this.keyDebouncer = true;
+
+                timeout = setTimeout(() => {
+                    this.keyDebouncer = false;
+                }, 250);
+
+                const keyName = event.key;
+
+                if (keyName === 'ArrowUp') {
+                    // do not alert when only Control key is pressed.
+                    console.log('User pressed the up arrow key')
+
+                    if(this.state.currentResultNumber > 0) {
+                        
+                        console.log(this.state.currentResultNumber);
+
+                        let newResultNum = this.state.currentResultNumber - 1;
+                        console.log(newResultNum, 'new cursor num')
+
+
+                        this.itemClicked(this.state.resultsList[newResultNum].uuid, newResultNum)
+                    }
+                }
+
+                if (keyName === 'ArrowDown') {
+
+                    console.log(this.state.currentResultNumber);
+
+
+                    if(this.state.currentResultNumber < this.state.resultsList.length - 1) {
+
+                        let newResultNum = this.state.currentResultNumber + 1;
+                        console.log(newResultNum, 'new cursor num')
+                        this.itemClicked(this.state.resultsList[newResultNum].uuid, newResultNum)
+                    }
+                }
+
+                if (keyName === ' ') {
+                    // do not alert when only Control key is pressed.
+                    console.log('User pressed the space bar')
+
+                    let newStateList = this.state.resultsList.map((item) => {
+                        if (item.uuid === this.state.currentTileID)
+                            item.selected = !item.selected
+                        return item;
+                    })
+
+                    this.setState({
+                        resultList: [...newStateList]
+                    });
+                }
+
+
+            } else {
+
+
+            }
+
+
+        }, false);
+
     }
 
     componentWillUnmount() {
@@ -136,6 +224,12 @@ export default class Main extends React.Component {
     toggleAmazonAPI() {
         this.setState({
             amazonAPI: !this.state.amazonAPI
+        })
+    }
+
+    toggleDeveloperCache() {
+        this.setState({
+          developerCache: !this.state.developerCache
         })
     }
 
@@ -256,6 +350,113 @@ export default class Main extends React.Component {
         })
     }
 
+    b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+        const byteCharacters = atob(b64Data);
+        const byteArrays = [];
+
+        for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+            const slice = byteCharacters.slice(offset, offset + sliceSize);
+
+            const byteNumbers = new Array(slice.length);
+            for (let i = 0; i < slice.length; i++) {
+                byteNumbers[i] = slice.charCodeAt(i);
+            }
+
+            const byteArray = new Uint8Array(byteNumbers);
+
+            byteArrays.push(byteArray);
+        }
+
+        const blob = new Blob(byteArrays, {type: contentType});
+        return blob;
+    };
+
+    setCurrentTileFootprint() {
+        console.log('getting tile footprints...');
+
+        // Load the footprints for the retrieved data
+        // First get teh uniq tile zones in the retrieved data
+        let uniqUTMZone = [];
+
+        for (let thing of this.state.resultsList) {
+
+            console.log('local data list item', thing);
+            // load the reference tile for this geojson
+            console.log('ProductName', thing.product_name)
+
+            let myRE = /T\d{1,2}[A-Z]{3}/;
+            var myArray = myRE.exec(thing.product_name);
+
+            if (myArray) {
+
+                console.log('Full Zone Name: ', myArray[0]);
+                uniqUTMZone.push(myArray[0]);
+
+            } else {
+                console.log('this is a multi-feature data product (not a single tile)')
+            }
+        }
+
+        let uniqUTMZoneSet = new Set(uniqUTMZone);
+
+        let uniqJustUTM = {};
+
+        for (let thing of uniqUTMZoneSet) {
+            console.log('THING ------------------------------------------------------- ', thing);
+
+            let justUTM = thing.slice(1, 3);
+            console.log("UTM ZOne!!:", justUTM);
+
+            if (!uniqJustUTM.hasOwnProperty(justUTM)) {
+
+                let newArray = []
+                newArray.push(thing.slice(3, 6));
+
+                console.log('WE IN IT NOW BOYSE', thing.slice(3, 6));
+
+                uniqJustUTM[justUTM] = newArray;
+
+            } else {
+                uniqJustUTM[justUTM].push(thing.slice(3, 6));
+            }
+        }
+
+        console.log('list of files to open for footprint', uniqJustUTM);
+
+        for (let zoneIndex in uniqJustUTM) {
+
+            let fileStringComplete = './app/static/' + zoneIndex + '.geojson';
+            console.log(fileStringComplete)
+            let that = this;
+
+            fetch(fileStringComplete).then(function(response) {
+                return response.json();
+
+            }).then(function(myJSON) {
+
+                console.log(myJSON)
+                var newArray = that.state.tileFootprint.slice();
+                for(let listItem of uniqJustUTM[zoneIndex]) {
+
+                    console.log("list item", listItem);
+                    for (let feature of myJSON.features) {
+                        if (feature.properties.name.slice(-3) === listItem) {
+                            feature.name = zoneIndex + listItem;
+                            console.log(feature);
+
+                            newArray.push(feature);
+                        }
+                    }
+                    console.log('New Array: ', newArray)
+                }
+
+                that.setState({
+                    tileFootprint: newArray
+                })
+            });
+        }
+    }
+
     getBoundsInMGRS(inputCoords) {
 
         this.setState({
@@ -284,266 +485,373 @@ export default class Main extends React.Component {
 
         let that = this;
 
-        if (this.state.amazonAPI) {
-            axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
+        if (this.state.developerCache) {
 
-                console.log(response);
-                //reset captcha after submission result (SOMEHOW)
-                if (response.status === 200) {
+            let locallist = window.localStorage.getItem('localResultList');
 
-                    console.log('it was a success')
+            if (locallist) {
 
-                    // how to add an image raster to the map using the mainMap reference
-                    // Check for the various File API support.
-                    if (window.File && window.FileReader && window.FileList && window.Blob) {
-                        // Great success! All the File APIs are supported.
-                        console.log('The File APIs are fully supported')
-                    } else {
-                        console.log('The File APIs are not fully supported in this browser.');
-                    }
+                this.setState({
+                    resultsList: []
+                });
 
-                    let sizeArray1 = response.data.slice(0,4);
-                    let sizeArray2 = response.data.slice(4,8);
-                    let dv = new DataView(sizeArray1, 0);
+                let localResultsList = JSON.parse(locallist)
 
-                    console.log(sizeArray1);
-                    console.log(dv.getInt32())
+                console.log('getting cached results...', localResultsList);
+                // when a moment object is serialized, it is a string, need to reinstatiate it as a full moment object
+                localResultsList.map((item) => {
+                    let itemDate = item.dateObj;
+                    item.dateObj = moment(itemDate);
 
-                    let imageOffset = dv.getInt32();
-
-                    dv = new DataView(sizeArray2, 0);
-
-                    console.log(sizeArray2);
-                    console.log(dv.getInt32())
-
-                    let jsonOffset = dv.getInt32();
-
-                    let jsonArray = response.data.slice(8 + imageOffset);
-
-                    let imageArray = response.data.slice(8 ,8 + imageOffset);
-
-                    let blob = new Blob([imageArray], {type: 'image/jpeg'});
-
-                    let objUrl = window.URL.createObjectURL(blob);
-
-                    that.setState({
-                        imageSrc: objUrl
-                    });
-
-                    var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
-
-                    console.log(JSON.parse(decodedString));
-
-                    let jsonMetadata = JSON.parse(decodedString);
-
-                    that.setState({currentTileInfo: jsonMetadata});
-
-                    let coords = jsonMetadata.tileGeometry.coordinates[0];
-
-                    let latLngCoords = []
-
-                    for (let coord of coords) {
-
-                        let utmToLatLng = coordinator('utm', 'latlong')
-
-                        let convCoord = utmToLatLng(coord[1], coord[0], jsonMetadata.utmZone);
-
-                        latLngCoords.push([convCoord.longitude, convCoord.latitude])
-                    }
-
-                    console.log(latLngCoords);
-
-                    latLngCoords.pop();
-
-                    this.map.addSource(jsonMetadata.productName + 'source', {
-                        type: 'image',
-                        url: objUrl,
-                        coordinates: latLngCoords
-                    });
-
-                    this.map.addLayer({
-                        id: jsonMetadata.productName + 'layer',
-                        type: 'raster',
-                        source: jsonMetadata.productName + 'source'
-                    });
-
-                } else {
-
-                    console.log('it was not a success')
-                }
-
-            }).catch(function (error) {
-                console.log(error);
-                console.log('something went wrong')
-            });
-
-        } else {
-
-            console.log('not using the AmazonAPI')
-
-            let queryStr = 'q=';
-            for (let coord of inputCoords) {
-
-                console.log(coord)
-                console.log(coord.lat, coord.lng)
-                queryStr += coord.lat + ',' + coord.lng + '_';
-            }
-
-            queryStr += inputCoords[0].lat + ',' + inputCoords[0].lng; // complete the polygon
-
-            console.log('query string is :', queryStr)
-
-            const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
-                const byteCharacters = atob(b64Data);
-                const byteArrays = [];
-
-                for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
-                    const slice = byteCharacters.slice(offset, offset + sliceSize);
-
-                    const byteNumbers = new Array(slice.length);
-                    for (let i = 0; i < slice.length; i++) {
-                        byteNumbers[i] = slice.charCodeAt(i);
-                    }
-
-                    const byteArray = new Uint8Array(byteNumbers);
-
-                    byteArrays.push(byteArray);
-                }
-
-                const blob = new Blob(byteArrays, {type: contentType});
-                return blob;
-            };
-
-            // using the esa open data hub API instead of the amazon
-            axios.get(config.server_address + '/openaccessdatahub?' + queryStr, {responseType: 'json'}).then((response) => {
-
-                console.log(response);
-                //reset captcha after submission result (SOMEHOW)
-                if (response.status === 200) {
-
-                    console.log('it was a success')
-
-                    // how to add an image raster to the map using the mainMap reference
-
-                    console.log('Raw response ' + response)
-                    console.log('response data' + response.data);
-
-                    let localList = [];
-
-                    for (let item of response.data) {
-
-                        let blob = b64toBlob(item.imagebuffer, 'image/jpg');
+                    if( item.imagebuffer !== undefined) {
+                        let blob = this.b64toBlob(item.imagebuffer, 'image/jpg');
 
                         let objUrl = window.URL.createObjectURL(blob);
 
                         item.localImageURL = objUrl;
-
-                        localList.push(item);
+                    } else {
+                        item.localImageURL = "./app/static/noimage.jpg";
                     }
 
-                    this.setState({
-                        resultsList: [...localList]
-                    });
+                    return item;
+                });
 
-                    // Load the footprints for the retrieved data
-                    // First get teh uniq tile zones in the retrieved data
-                    let uniqUTMZone = [];
+                this.setState({
+                    resultsList: [...localResultsList]
+                });
 
-                    for (let thing of this.state.resultsList) {
+                this.setCurrentTileFootprint();
 
-                        console.log('local data list item', thing);
-                        // load the reference tile for this geojson
-                        console.log('ProductName', thing.product_name)
+            } else {
+                alert('No local cache found, can\'t use developer mode, try getting some data first.')
+            }
 
-                        let myRE = /T\d{1,2}[A-Z]{3}/;
-                        var myArray = myRE.exec(thing.product_name);
+        } else {
 
-                        if (myArray) {
+            if (this.state.amazonAPI) {
+                axios.post(config.server_address + '/listobjects', postObject, {responseType: 'arraybuffer'}).then((response) => {
 
-                            console.log('Full Zone Name: ', myArray[0]);
-                            uniqUTMZone.push(myArray[0]);
+                    console.log(response);
+                    //reset captcha after submission result (SOMEHOW)
+                    if (response.status === 200) {
 
+                        console.log('it was a success')
+
+                        // how to add an image raster to the map using the mainMap reference
+                        // Check for the various File API support.
+                        if (window.File && window.FileReader && window.FileList && window.Blob) {
+                            // Great success! All the File APIs are supported.
+                            console.log('The File APIs are fully supported')
                         } else {
-                            console.log('this is a multi-feature data product (not a single tile)')
+                            console.log('The File APIs are not fully supported in this browser.');
                         }
-                    }
 
-                    let uniqUTMZoneSet = new Set(uniqUTMZone);
+                        let sizeArray1 = response.data.slice(0,4);
+                        let sizeArray2 = response.data.slice(4,8);
+                        let dv = new DataView(sizeArray1, 0);
 
-                    let uniqJustUTM = {};
+                        console.log(sizeArray1);
+                        console.log(dv.getInt32())
 
-                    for (let thing of uniqUTMZoneSet) {
-                        console.log('THING ------------------------------------------------------- ', thing);
+                        let imageOffset = dv.getInt32();
 
-                        let justUTM = thing.slice(1, 3);
-                        console.log("UTM ZOne!!:", justUTM);
+                        dv = new DataView(sizeArray2, 0);
 
-                        if (!uniqJustUTM.hasOwnProperty(justUTM)) {
+                        console.log(sizeArray2);
+                        console.log(dv.getInt32())
 
-                            let newArray = []
-                            newArray.push(thing.slice(3, 6));
+                        let jsonOffset = dv.getInt32();
 
-                            console.log('WE IN IT NOW BOYSE', thing.slice(3, 6));
+                        let jsonArray = response.data.slice(8 + imageOffset);
 
-                            uniqJustUTM[justUTM] = newArray;
+                        let imageArray = response.data.slice(8 ,8 + imageOffset);
 
-                        } else {
-                            uniqJustUTM[justUTM].push(thing.slice(3, 6));
-                        }
-                    }
+                        let blob = new Blob([imageArray], {type: 'image/jpeg'});
 
-                    console.log('list of files to open for footprint', uniqJustUTM);
+                        let objUrl = window.URL.createObjectURL(blob);
 
-                    for (let zoneIndex in uniqJustUTM) {
-
-                        let fileStringComplete = './app/static/' + zoneIndex + '.geojson';
-                        console.log(fileStringComplete)
-                        let that = this;
-
-                        fetch(fileStringComplete).then(function(response) {
-                            return response.json();
-
-                        }).then(function(myJSON) {
-
-                            console.log(myJSON)
-                            var newArray = that.state.tileFootprint.slice();
-                            for(let listItem of uniqJustUTM[zoneIndex]) {
-
-                                console.log("list item", listItem);
-                                for (let feature of myJSON.features) {
-                                    if (feature.properties.name.slice(-3) === listItem) {
-                                        feature.name = zoneIndex + listItem;
-                                        console.log(feature);
-
-                                        newArray.push(feature);
-                                    }
-                                }
-                                console.log('New Array: ', newArray)
-                            }
-
-                            that.setState({
-                                tileFootprint: newArray
-                            })
+                        that.setState({
+                            imageSrc: objUrl
                         });
+
+                        var decodedString = String.fromCharCode.apply(null, new Uint8Array(jsonArray));
+
+                        console.log(JSON.parse(decodedString));
+
+                        let jsonMetadata = JSON.parse(decodedString);
+
+                        that.setState({currentTileInfo: jsonMetadata});
+
+                        let coords = jsonMetadata.tileGeometry.coordinates[0];
+
+                        let latLngCoords = []
+
+                        for (let coord of coords) {
+
+                            let utmToLatLng = coordinator('utm', 'latlong')
+
+                            let convCoord = utmToLatLng(coord[1], coord[0], jsonMetadata.utmZone);
+
+                            latLngCoords.push([convCoord.longitude, convCoord.latitude])
+                        }
+
+                        console.log(latLngCoords);
+
+                        latLngCoords.pop();
+
+                        this.map.addSource(jsonMetadata.productName + 'source', {
+                            type: 'image',
+                            url: objUrl,
+                            coordinates: latLngCoords
+                        });
+
+                        this.map.addLayer({
+                            id: jsonMetadata.productName + 'layer',
+                            type: 'raster',
+                            source: jsonMetadata.productName + 'source'
+                        });
+
+                    } else {
+
+                        console.log('it was not a success')
                     }
 
-                } else {
-                    // something went wrong
-                    console.log('it was not a success')
-                }
-
-            }).catch(function (error) {
+                }).catch(function (error) {
                     console.log(error);
                     console.log('something went wrong')
-            });
+                });
+
+            } else {
+
+                console.log('not using the AmazonAPI')
+
+                let queryStr = 'q=';
+                for (let coord of inputCoords) {
+
+                    console.log(coord)
+                    console.log(coord.lat, coord.lng)
+                    queryStr += coord.lat + ',' + coord.lng + '_';
+                }
+
+                queryStr += inputCoords[0].lat + ',' + inputCoords[0].lng; // complete the polygon
+
+                console.log('query string is :', queryStr)
+
+                let requestDate = new Date();
+                console.log('request sent to server at', requestDate);
+                this.setState({
+                    requestStarted: requestDate
+                });
+                let interval = setInterval(() => {
+                    let newDate = new Date();
+
+                    let ms = newDate - requestDate;
+                    this.setState({
+                        requestTime: parseInt(ms / 1000)
+                    });
+                }, 1000);
+
+                // using the esa open data hub API instead of the amazon
+                axios.get(config.server_address + '/openaccessdatahub?' + queryStr, {
+                    responseType: 'text',
+                    timeout: 240000,
+                    headers: {
+                        // "Keep-Alive": `timeout=${1*60*5}`
+                    }
+                }).then((response) => {
+
+                    console.log(response);
+                    //reset captcha after submission result (SOMEHOW)
+                    if (response.status === 200) {
+
+                        this.setState({
+                            resultsList: []
+                        });
+
+                        console.log('it was a success')
+
+                        // how to add an image raster to the map using the mainMap reference
+
+                        console.log('Raw response ' + response)
+                        // console.log('response data' + response.data);
+
+                        let localList = [];
+
+                        let jsonArray = response.data.split('_#_');
+
+                        jsonArray.pop();
+
+                        let jsonStrings = [];
+
+                        for (let json of jsonArray) {
+                            console.log('Json string', json)
+                            jsonStrings.push(JSON.parse(json));
+                        }
+
+                        for (let item of jsonStrings) {
+
+                            if( item.imagebuffer !== undefined) {
+                                let blob = this.b64toBlob(item.imagebuffer, 'image/jpg');
+
+                                let objUrl = window.URL.createObjectURL(blob);
+
+                                item.localImageURL = objUrl;
+                            } else {
+                                item.localImageURL = "./app/static/noimage.jpg";
+                            }
+
+                            item.dateObj = moment(item.date, 'YYYY-MM-DDTHH:mm:ss.SSSZ');
+
+                            item.selected = false
+
+                            localList.push(item);
+                        }
+
+                        // 2017-11-13T11:13:09.027Z
+                        localList.sort((a, b) => {
+
+                            // sort descending, reverse (A - B) to sort ascending
+                            return b.dateObj - a.dateObj;
+                        })
+
+                        this.setState({
+                            resultsList: [...localList]
+                        });
+
+                        // we have the state, lets write it out to localStorage on if we want to do developer mode
+                        window.localStorage.setItem('localResultList', JSON.stringify(localList));
+
+                        // Load the footprints for the retrieved data
+                        // First get teh uniq tile zones in the retrieved data
+                        let uniqUTMZone = [];
+
+                        for (let thing of this.state.resultsList) {
+
+                            console.log('local data list item', thing);
+                            // load the reference tile for this geojson
+                            console.log('ProductName', thing.product_name)
+
+                            let myRE = /T\d{1,2}[A-Z]{3}/;
+                            var myArray = myRE.exec(thing.product_name);
+
+                            if (myArray) {
+
+                                console.log('Full Zone Name: ', myArray[0]);
+                                uniqUTMZone.push(myArray[0]);
+
+                            } else {
+                                console.log('this is a multi-feature data product (not a single tile)')
+                            }
+                        }
+
+                        let uniqUTMZoneSet = new Set(uniqUTMZone);
+
+                        let uniqJustUTM = {};
+
+                        for (let thing of uniqUTMZoneSet) {
+                            console.log('THING ------------------------------------------------------- ', thing);
+
+                            let justUTM = thing.slice(1, 3);
+                            console.log("UTM ZOne!!:", justUTM);
+
+                            if (!uniqJustUTM.hasOwnProperty(justUTM)) {
+
+                                let newArray = []
+                                newArray.push(thing.slice(3, 6));
+
+                                console.log('WE IN IT NOW BOYSE', thing.slice(3, 6));
+
+                                uniqJustUTM[justUTM] = newArray;
+
+                            } else {
+                                uniqJustUTM[justUTM].push(thing.slice(3, 6));
+                            }
+                        }
+
+                        console.log('list of files to open for footprint', uniqJustUTM);
+
+                        for (let zoneIndex in uniqJustUTM) {
+
+                            let fileStringComplete = './app/static/' + zoneIndex + '.geojson';
+                            console.log(fileStringComplete)
+                            let that = this;
+
+                            fetch(fileStringComplete).then(function(response) {
+                                return response.json();
+
+                            }).then(function(myJSON) {
+
+                                console.log(myJSON)
+                                var newArray = that.state.tileFootprint.slice();
+                                for(let listItem of uniqJustUTM[zoneIndex]) {
+
+                                    console.log("list item", listItem);
+                                    for (let feature of myJSON.features) {
+                                        if (feature.properties.name.slice(-3) === listItem) {
+                                            feature.name = zoneIndex + listItem;
+                                            console.log(feature);
+
+                                            newArray.push(feature);
+                                        }
+                                    }
+                                    console.log('New Array: ', newArray)
+                                }
+
+                                that.setState({
+                                    tileFootprint: newArray
+                                })
+                            });
+                        }
+
+                        clearInterval(interval);
+
+                    } else {
+                        // something went wrong
+                        console.log('it was not a success')
+                    }
+
+                }).catch(function (error) {
+                    console.log(error);
+                    console.log('something went wrong')
+                    clearInterval(interval);
+                });
+            }
         }
+
 
     }
 
     callback = (reference) => {
         console.log(this)
         console.log(reference)
-    }
+    };
+
+    toggleSelected = (id) => {
+
+        let updatedResultList = this.state.resultsList.map((item) => {
+
+            if (item.uuid === id)
+                item.selected = !item.selected;
+
+            return item;
+        });
+
+        this.setState({
+            resultsList: [...updatedResultList]
+        });
+
+    };
+
+    itemClicked = (id, number) => {
+         console.log(id + ' Was Clicked by the user');
+
+         this.setState({
+             currentTileID: id,
+             currentResultNumber: number
+         });
+
+         this.setCurrentTile(id);
+    };
 
     render() {
 
@@ -614,143 +922,84 @@ export default class Main extends React.Component {
             minWidth: "50vw"
         };
 
+        const tileInfoDiv = () => {
+
+            if (this.state.resultsList.length > 0) {
+
+
+                let currentTile = this.state.resultsList[this.state.currentResultNumber];
+                return (<div className="tile-info">
+
+                    <div className="flex-container">
+                        <div className="imageDiv">
+                            <img src={currentTile.localImageURL} alt={currentTile.uuid}/>
+                        </div>
+                        <div className="textInfoDiv">
+                            <h3>Tile Info</h3>
+
+                            <p className="label">Result #: </p>
+                            <p>{this.state.currentResultNumber + 1}</p>
+
+                            <p className="label">Date: </p>
+                            <p>{currentTile.dateObj.format("MMMM Do YYYY, HH:mm:ss zzz")}</p>
+                            <p className="label">Tilename: </p>
+                            <p>{currentTile.product_name}</p>
+                            <p className="label">Ingestion name: </p>
+                            <p>{currentTile.ingestionname}</p>
+                            <p className="label">Data Size: </p>
+                            <p>{currentTile.datasize}</p>
+                            <p className="label">Cloudy Pixel %: </p>
+                            <p>{currentTile.cloudy_pixels}</p>
+                        </div>
+                    </div>
+                </div>);
+            } else {
+                return (<div className="tile-info">
+                    <h3>Tile Info</h3>
+                    <p>There are no tiles.</p>
+                </div>)
+            }
+        };
+
+
         return (
             <div className='main'>
-                {/*<Map*/}
-                    {/*ref={(butt) => { this.mapContainer = butt; }}*/}
-                    {/*style="mapbox://styles/mapbox/streets-v9"*/}
-                    {/*containerStyle={{*/}
-                        {/*height: "50vh",*/}
-                        {/*width: "50vw",*/}
-                        {/*gridColumn: "span 1"*/}
-                    {/*}}*/}
-                    {/*onClick={this.clickHandler}*/}
-                    {/*drawCreate={this.polygonCreated}*/}
-                    {/*onRender={this.mapRendered}*/}
-                    {/*>*/}
-                    {/*<DrawControl*/}
-                        {/*ref={(drawControl) => { this.drawControl = drawControl; }}*/}
-                        {/*displayControlsDefault={false}*/}
-                        {/*controls={{*/}
-                            {/*polygon: true,*/}
-                            {/*trash: true*/}
-                        {/*}}*/}
-                        {/*create={this.polygonCreated}*/}
-                    {/*/>*/}
-                    {/*<Layer*/}
-                        {/*type="symbol"*/}
-                        {/*id="marker"*/}
-                        {/*layout={{ "icon-image": "harbor-15" }}>*/}
-                        {/*<Feature coordinates={[-0.481747846041145, 51.3233379650232]}/>*/}
-                    {/*</Layer>*/}
-                {/*</Map>*/}
 
                 <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
 
-
-                {/*<Map ref='map' center={position} zoom={13} height={500} className="mainMap" minZoom={2} maxBounds={restrictBounds} maxBoundsViscosity={1.0} onZoomend={this.handleZoomChange}>*/}
-                    {/*<FeatureGroup>*/}
-                        {/*<EditControl*/}
-                            {/*position='topright'*/}
-                            {/*onEdited={this._onEditPath}*/}
-                            {/*onCreated={this._onCreate}*/}
-                            {/*onDeleted={this._onDeleted}*/}
-                            {/*draw={{*/}
-                                {/*marker: false,*/}
-                                {/*polyline: false,*/}
-                                {/*circle: false*/}
-                            {/*}}*/}
-                        {/*/>*/}
-                        {/*<Circle center={[51.51, -0.06]} radius={200} />*/}
-                    {/*</FeatureGroup>*/}
-                    {/*<TileLayer*/}
-                        {/*url='http://{s}.tile.osm.org/{z}/{x}/{y}.png'*/}
-                        {/*attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'*/}
-                        {/*// noWrap='false'*/}
-                    {/*/>*/}
-
-                    {/*{this.state.tileFootprint.map((obj) =>{*/}
-                        {/*return (*/}
-                            {/*<GeoJSON key={obj.name} data={obj} style="" />*/}
-                        {/*);*/}
-                    {/*})}*/}
-
-
-                    {/*{currentTileFootprint()}*/}
-
-
-                    {/*<Marker position={position}>*/}
-                        {/*<Popup>*/}
-                            {/*<span>A pretty CSS3 popup.<br/>Easily customizable.</span>*/}
-                        {/*</Popup>*/}
-                    {/*</Marker>*/}
-                {/*</Map>*/}
                 <div className="resultList">
                     <h3>Query Results</h3>
-                    <ul>
-                        {this.state.resultsList.map((obj) =>{
-                            return (<li key={ obj.uuid } onClick={(e) => this.setCurrentTile(obj.uuid, e)}>
-                                        {obj.product_name}<br/>
-                                        {obj.uuid} <br/>
-                                        {obj.date} <br/>
+                    <div className="scrollContainer">
+                         <div className="list">
+                            {this.state.resultsList.map((obj, index) => {
+                                console.log('index', index);
+                                let currentTile = false;
+                                if (obj.uuid === this.state.currentTileID) {
+                                    currentTile  = true;
+                                }
 
-                                        {/*need to authenticate to use the raw url for the images*/}
-                                        <img src={obj.localImageURL} alt={obj.product_name}/>
-                                    </li>);
-                        })}
-                    </ul>
+                                return (<ResultItem item={obj} itemClicked={this.itemClicked} currentTile={currentTile} resultNumber={index} toggleSelected={this.toggleSelected}/>);
+                            })}
+                        </div>
+                    </div>
                 </div>
 
-                {/*{path: "tiles/30/U/YC/2015/8/8/0", timestamp: "2015-08-08T11:05:33.511Z", utmZone: 30, latitudeBand: "U", gridSquare: "YC", …}*/}
-                {/*cloudyPixelPercentage*/}
-                {/*:*/}
-                {/*8.35*/}
-                {/*dataCoveragePercentage*/}
-                {/*:*/}
-                {/*100*/}
-                {/*datastrip*/}
-                {/*:*/}
-                {/*{id: "S2A_OPER_MSI_L1C_DS_EPA__20160905T121355_S20150808T110533_N02.04", path: "products/2015/8/8/S2A_OPER_PRD_MSIL1C_PDMC_2016090…R094_V20150808T110036_20150808T110533/datastrip/0"}*/}
-                {/*gridSquare*/}
-                {/*:*/}
-                {/*"YC"*/}
-                {/*latitudeBand*/}
-                {/*:*/}
-                {/*"U"*/}
-                {/*path*/}
-                {/*:*/}
-                {/*"tiles/30/U/YC/2015/8/8/0"*/}
-                {/*productName*/}
-                {/*:*/}
-                {/*"S2A_OPER_PRD_MSIL1C_PDMC_20160907T051210_R094_V20150808T110036_20150808T110533"*/}
-                {/*productPath*/}
-                {/*:*/}
-                {/*"products/2015/8/8/S2A_OPER_PRD_MSIL1C_PDMC_20160907T051210_R094_V20150808T110036_20150808T110533"*/}
-                {/*tileDataGeometry*/}
-                {/*:*/}
-                {/*{type: "Polygon", crs: {…}, coordinates: Array(1)}*/}
-                {/*tileGeometry*/}
-                {/*:*/}
-                {/*{type: "Polygon", crs: {…}, coordinates: Array(1)}*/}
-                {/*tileOrigin*/}
-                {/*:*/}
-                {/*{type: "Point", crs: {…}, coordinates: Array(2)}*/}
-                {/*timestamp*/}
-                {/*:*/}
-                {/*"2015-08-08T11:05:33.511Z"*/}
-                {/*utmZone*/}
-                {/*:*/}
-                {/*30*/}
+                {tileInfoDiv()}
 
-                <div className="tile-info">
-                    <p>Tile Info</p>
-                    <p>Date: {this.state.currentTileInfo.timestamp}</p>
-                    <p>Tile: {this.state.currentTileInfo.path}</p>
-                    <p>Cloudy Pixel Percent: {this.state.currentTileInfo.cloudyPixelPercentage}</p>
+                <div className="optionsContainer">
+                    <h1>Options</h1>
                     <input id="amazonapitoggle" type='checkbox' defaultChecked={this.state.amazonAPI} onChange={this.toggleAmazonAPI} />
                     <label htmlFor="amazonapitoggle">Use Amazon S3 API</label>
+                    <br/>
+                    <input id="developerCache" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />
+                    <label htmlFor="developerCache">Use Local Cache for GUI Development</label>
+                </div>
+                <div className="serverInfo">
+                    { this.state.requestStarted !== undefined ? <p>Request Started</p> : <p>No request running</p>}
+                    { this.state.requestTime != 0 ? <p>Elapsed time {this.state.requestTime}</p> : ""}
                 </div>
                 <LinearCalendar/>
+
             </div>
         );
     }

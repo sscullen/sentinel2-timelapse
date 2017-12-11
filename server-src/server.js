@@ -63,77 +63,20 @@ app.listen(port, () => {
     console.log('Express listening on ' + port);
 });
 
-// connect to ESA Sentinel Datahub API to get preview image, return as a base64 encoded string,
-// That can be transferred back to binary on the client side
-const getPreviewImage = (obj, base64String) => {
-
-    return new Promise((resolve, reject) => {
-        // Quicklookurl https://scihub.copernicus.eu/dhus/odata/v1/Products('f4d9d5b2-48de-4f64-b4c9-16ad52222f6c')/Products('Quicklook')/$value
-        const justPath = obj.quicklookURL.slice(28);
-
-        var options = {
-            host: 'scihub.copernicus.eu',
-            path: justPath,
-            auth:  sentinelUser + ':' + sentinelPass
-        };
-
-        try {
-            https.request(options, (response) => {
-
-                var data = [];
-
-                console.log(response.headers)
-                console.log(typeof(response.statusCode))
-
-                if (response.statusCode === 404) {
-                    console.log('status code is 404')
-                    return reject('not found')
-                } else if(response.statusCode === 401) {
-
-                    console.log('status code is un-authorized')
-                    return reject('not authorized')
-                }
-
-                //another chunk of data has been recieved, so append it to `str`
-                response.on('data', function (chunk) {
-                    console.log('binary chunk recieved ----------------')
-                    data.push(chunk);
-                });
-
-                //the whole response has been recieved, so we just print it out here
-                response.on('end', function () {
-                    console.log('image buffer has been received! --------------------------------------');
-
-                    let finalBuffer = Buffer.concat(data);
-
-                    if (base64String === true) {
-                        obj.imagebuffer = finalBuffer.toString('base64');
-
-                        console.log('resolving promise with image buffer converted to base64 string');
-                        resolve(obj);
-                    } else {
-                        obj.imagebuffer = finalBuffer;
-                        resolve(obj);
-                    }
-                });
-            }).end();
-        } catch (err) {
-            console.log('Something went wrong fetching the preview image....', err);
-        }
-
-    });
-};
 
 // connect to ESA Sentinel Datahub API, multiple pages might be required
-const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
+const searchSentinelDataHubSinglePage = (polygonString, startRow, startDate) => {
 
     return new Promise((resolve, reject) => {
+        let rows = 100;
 
         var options = {
             host: 'scihub.copernicus.eu',
-            path: '/dhus/search?format=json&start=' + startRow + '&rows=100&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
+            path: '/dhus/search?format=json&start=' + startRow + '&rows=' + rows + '&q=' + querystring.escape('platformname:Sentinel-2 AND filename:*L1C* AND footprint:"Intersects(POLYGON((' + polygonString + ')))"') + '&orderby=beginposition%20desc',
             auth:  sentinelUser + ':' + sentinelPass
         }
+
+        console.log('making request to esa server');
 
         https.request(options, (response) => {
             var str = '';
@@ -151,6 +94,13 @@ const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
             //another chunk of data has been recieved, so append it to `str`
             response.on('data', function (chunk) {
                 console.log('chunk recieved ----------------')
+                let dateNow = new Date();
+
+                console.log(dateNow.getTime() - startDate.getTime())
+
+                if ((dateNow.getTime() - startDate.getTime()) > 110000)
+                    reject('taking too long to fetch search results, longer than 120 seconds')
+
                 str += chunk;
             });
 
@@ -167,10 +117,10 @@ const searchSentinelDataHubSinglePage = (polygonString, startRow) => {
     });
 };
 
-const getCompleteItemList = (polygonString, itemList) => {
+const getCompleteItemList = (polygonString, itemList, startDate) => {
 
     return new Promise((resolve, reject) => {
-        return searchSentinelDataHubSinglePage(polygonString, 0).then((result) => {
+        return searchSentinelDataHubSinglePage(polygonString, 0, startDate).then((result) => {
             const totalResults = result.feed['opensearch:totalResults'];
             if (totalResults === 0) {
                 reject('something went wrong, no results')
@@ -191,7 +141,7 @@ const getCompleteItemList = (polygonString, itemList) => {
                 console.log('Data not contained on one page, we will need to query ', pageCount);
 
                 for (let i = 0; i < pageCount; i++) {
-                    promiseList.push(searchSentinelDataHubSinglePage(polygonString, i * 100))
+                    promiseList.push(searchSentinelDataHubSinglePage(polygonString, i * 100, startDate))
                 }
 
                 Promise.all(promiseList).then((result) => {
@@ -201,10 +151,17 @@ const getCompleteItemList = (polygonString, itemList) => {
                     for (let r of result) {
                         console.log('One result------------------------------------------------------------------------');
                         console.log(r.feed.entry.length)
-                        itemList.push(...r.feed.entry)
+
+                        if (r.feed.entry.length > 1)
+                            itemList.push(...r.feed.entry)
+                        else
+                            itemList.push(r.feed.entry);
                     }
                     resolve();
-                })
+                }, (err) => {
+                    console.log('error occured when gathering all the search results')
+                    reject(err)
+                });
             }
         }, (err) => {
             console.log(err)
@@ -331,7 +288,9 @@ app.get('/openaccessdatahub', (req, res) => {
 
     let itemList = [];
 
-    getCompleteItemList(polygonString, itemList).then(() => {
+    let startRequestTime = new Date();
+
+    getCompleteItemList(polygonString, itemList, startRequestTime).then(() => {
         // All done boss, lets filter the array and send a response to the client
         // Each item should have
         // Title
@@ -345,20 +304,53 @@ app.get('/openaccessdatahub', (req, res) => {
         let formattedDataItemArray = [];
         let promiseList = []
 
-        for (let item of itemList) {
-            promiseList.push(reformatDataItem(item))
+        // .entries() lets use an iterator to get the index of the loop
+        // along with [index, item]
+
+        res.writeHead(200, {
+            'Content-Type': 'text/plain',
+            'Transfer-Encoding': 'chunked'
+        });
+        // using for development, set to -1 in production
+        let maxResults = 10;
+
+        for (let [index, item] of itemList.entries()) {
+
+            if (maxResults !== -1)
+                if (index === maxResults)
+                    break
+
+            console.log('-==================== stargin promise for item ' + index + ' of ' + itemList.length);
+            promiseList.push(reformatDataItem(item, index, itemList.length, res))
         }
 
         Promise.all(promiseList).then((result) => {
             //console.log(result);
-            res.send(JSON.stringify(result));
+
+            // res.status(200).send(JSON.stringify(result));
+
+
             console.log('all done! Everything was transferred to client successfully====================================');
+            // res.end('fuck you', (e) => {
+            //     console.log('Sent the end message');
+            //     console.log('e');
+            // });
+
+            res.end();
+
+        }, (err) => {
+            console.log('something went wrong, in the reject block!', err);
+            console.log('something went wrong trying to reformat each data item and fetch the preview image.')
+            res.status(401).send('something went wrong trying to reformat each data item and fetch the preview image.');
+        }).catch((err) => {
+            console.log('something went wrong WOOP WOOP in the catch block');
+            res.status(401).send('something went wrong trying to reformat each data item and fetch the preview image.');
         });
 
 
     }, (err) => {
         console.log('the promise was rejected, ', err)
-        res.status(401).send('sorry something didnt work');
+        res.status(500).send(err);
     }).catch((err) => {
         console.log(err);
         console.log('sorry something went wrong');
@@ -460,8 +452,161 @@ app.post('/listobjects', bodyParser.json(), (req, res) => {
     });
 });
 
-const reformatDataItem = (item) => {
+// connect to ESA Sentinel Datahub API to get preview image, return as a base64 encoded string,
+// That can be transferred back to binary on the client side
+const getPreviewImage = (obj, base64String) => {
 
+    return new Promise((resolve, reject) => {
+        // Quicklookurl https://scihub.copernicus.eu/dhus/odata/v1/Products('f4d9d5b2-48de-4f64-b4c9-16ad52222f6c')/Products('Quicklook')/$value
+        const justPath = obj.quicklookURL.slice(28);
+
+        var options = {
+            host: 'scihub.copernicus.eu',
+            path: justPath,
+            auth:  sentinelUser + ':' + sentinelPass,
+            timeout: 5000
+        };
+
+        console.log(justPath);
+
+        console.log('in get preview image, sending http request...')
+
+        // try implementing with another library
+
+        axios({
+            method: 'get',
+            url: justPath,
+            baseURL: 'https://scihub.copernicus.eu',
+            responseType: 'stream',
+            timeout: 120000,
+            auth: {
+                username: sentinelUser,
+                password: sentinelPass
+            },
+            httpsAgent: new https.Agent({ keepAlive: true })
+        }).then((res) => {
+
+            console.log('RESPONSE STARTS HERE: ' +
+                res);
+            console.log('axios WORKDED!')
+
+            // console.log(response.headers)
+            // console.log(typeof(response.statusCode))
+
+            if (res.statusCode === 404) {
+                console.log('status code is 404')
+                return reject('not found')
+            } else if(res.statusCode === 401) {
+
+                console.log('status code is un-authorized')
+
+                return reject('not authorized')
+            }
+
+            // console.log('image buffer has been received! --------------------------------------');
+            // console.log('image buffer is... ', res);
+            let data =[];
+            let timeout;
+            res.data.on('data', (chunk) => {
+                console.log(`Received ${chunk.length} bytes of data.`);
+                data.push(chunk);
+                clearTimeout(timeout);
+
+                timeout = setTimeout(() => {
+                    console.log('streaming the data took too long');
+                    res.data.destroy();
+                }, 30000);
+            });
+
+            res.data.on('end', () => {
+                console.log('There will be no more data.');
+                let finalBuffer = Buffer.concat(data);
+
+                clearTimeout(timeout);
+
+                if (base64String === true) {
+                    obj.imagebuffer = finalBuffer.toString('base64');
+
+                    // console.log(obj.imagebuffer);
+                    // console.log('resolving promise with image buffer converted to base64 string');
+                    resolve(obj);
+                } else {
+                    obj.imagebuffer = finalBuffer;
+                    resolve(obj);
+                }
+            });
+
+            res.data.on('error', (err) => {
+                console.log('something went wrong connecting to the stream')
+                reject(err);
+            });
+
+        }).catch((err) => {
+            console.log(err);
+            console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
+
+            reject(err);
+            console.log('axios did not worked')
+        });
+
+        // const request = https.request(options, (response) => {
+        //
+        //     var data = [];
+        //
+        //     // console.log(response.headers)
+        //     // console.log(typeof(response.statusCode))
+        //
+        //     if (response.statusCode === 404) {
+        //         console.log('status code is 404')
+        //         return reject('not found')
+        //     } else if(response.statusCode === 401) {
+        //
+        //         console.log('status code is un-authorized')
+        //         return reject('not authorized')
+        //     }
+        //
+        //
+        //     //another chunk of data has been recieved, so append it to `str`
+        //     response.on('data', function (chunk) {
+        //         console.log('binary chunk recieved ----------------')
+        //         data.push(chunk);
+        //     });
+        //
+        //
+        //     //the whole response has been recieved, so we just print it out here
+        //     response.on('end', function () {
+        //         console.log('image buffer has been received! --------------------------------------');
+        //
+        //         let finalBuffer = Buffer.concat(data);
+        //
+        //         if (base64String === true) {
+        //             obj.imagebuffer = finalBuffer.toString('base64');
+        //
+        //             // console.log('resolving promise with image buffer converted to base64 string');
+        //             resolve(obj);
+        //         } else {
+        //             obj.imagebuffer = finalBuffer;
+        //             resolve(obj);
+        //         }
+        //     });
+        //
+        // });
+        //
+        // request.on('error', (err) => {
+        //     console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
+        //     // obj.imagebuffer = undefined;
+        //
+        //     reject(err);
+        // });
+        //
+        // request.end();
+    });
+};
+
+
+const reformatDataItem = (item, index, length, res) => {
+
+    console.log('returning a new promise')
     return new Promise((resolve, reject) => {
 
         let obj = {};
@@ -513,6 +658,7 @@ const reformatDataItem = (item) => {
         let singlePolygon = [];
 
         for (let coord of polygonCoords) {
+            console.log('looping through polygons.')
             singlePolygon.push(coord.split(" ").map((item) => {
                 console.log('item : ', item);
                 return parseFloat(item);
@@ -523,8 +669,26 @@ const reformatDataItem = (item) => {
 
         obj.footprint = geoJsonFootprint;
 
+        // calling get preview image
+        console.log('calling get Preview from within reformate data... ');
         getPreviewImage(obj, true).then((result) => {
-            resolve(result);
+            console.log('Got preview image', result.uuid);
+            console.log(`resolving ${index} of ${length}`);
+            res.write(JSON.stringify(result) + '_#_', 'utf8', () => {
+                console.log('write is finished')
+                resolve(result);
+            });
+
+        }, (err) => {
+            console.log('REFORMATDATAITEM_ something went wrong when trying to get the preview image,' +
+                'setting image buffer to undefined and resolving', err);
+            obj.imageBuffer = undefined;
+            console.log(`resolving ${index} of ${length}, could not fetch image preview`);
+            console.log(obj);
+            res.write(JSON.stringify(obj) + '_#_', 'utf8', () => {
+                console.log('write is finished')
+                resolve(obj);
+            });
         });
     });
 };
