@@ -24,7 +24,7 @@ body {
 
   //grid-template-columns: minmax(min-content, 2fr) minmax(max-content, 1fr);
   grid-template-columns: 2fr 1fr;
-  grid-template-rows: 400px auto auto;
+  grid-template-rows: 450px auto auto;
   grid-gap: 10px;
 
   min-width: 100%;
@@ -33,7 +33,7 @@ body {
     .mainMap {
       // have to sync this height with the height in the declaration of <Map> inside MapContainer
 
-      height: 400px;
+      height: 450px;
       width: 100%;
       margin: 0 auto;
       margin-top: 20px;
@@ -51,9 +51,18 @@ body {
 
       justify-self: center;
 
+      border: 1px solid lightgray;
+
+      h2 {
+        font-size: 2em;
+        font-weight: 700;
+        padding: 10px;
+      }
+
       h3 {
         font-size: 2em;
         font-weight: 800;
+
       }
 
       ul {
@@ -115,8 +124,71 @@ body {
       }
     }
 
+    .serverControls {
+      button {
+        background-color: lightgray;
+        border: 2px solid coral;
+        padding: 5px;
+        border-radius: 3px;
+        font-weight: 700;
+      }
+
+      justify-self: center;
+    }
 }
 
+.startJobModal {
+  z-index: 100000;
+  background-color: white;
+  border: 1px lightgray solid;
+
+  width: 50%;
+  padding: 50px;
+}
+
+.ReactModal__Overlay.ReactModal__Overlay--after-open {
+  background-color: transparent;
+  z-index: 100000;
+}
+
+.ReactModal__Content.ReactModal__Content--after-open {
+  color: black;
+  z-index: 100000;
+  margin: auto;
+}
+
+.startJobModal .modal-button {
+  position: relative;
+
+  background-color: lightgray;
+  border: 2px solid coral;
+  padding: 5px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.jobListModal {
+  z-index: 10000;
+  width: 100%;
+  margin: auto;
+
+  h1 {
+    text-align: center;
+    font-size: 17px;
+    padding-bottom: 5px;
+
+  }
+}
+
+.jobListModal {
+
+}
+
+td.max-width {
+  max-width: 50px;
+  overflow: hidden;
+
+}
 
 
 //@import '~bootstrap/scss/bootstrap.scss';

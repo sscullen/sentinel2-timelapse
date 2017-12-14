@@ -13,16 +13,19 @@ const axios = require('axios');
 
 const fs = require('fs');
 const https = require('https');
+const path = require('path');
 
 const xml2js = require('xml2js');
 
 const parseString = xml2js.parseString;
+const { spawn } = require('child_process');
+
 
 // SEt up your auth requirements
 const sentinelUser = process.env.sentinelUser;
 const sentinelPass = process.env.sentinelPass;
 
-let path = require('path');
+
 
 let  parseMGRS  = require('./MGRSParse')
 
@@ -35,6 +38,14 @@ const querystring = require('querystring')
 var RateLimit = require('express-rate-limit')
 
 const port = 8000;
+
+
+// IMPORTANT DATA
+
+let jobList = [];
+let jobCount = 0;
+
+let atmosPromiseList = [];
 
 app.enable('trust proxy'); // only if you're behind a reverse proxy (Heroku, Bluemix, AWS if you use an ELB, custom Nginx setup, etc)
 
@@ -264,6 +275,595 @@ function toBytesInt32 (num) {
     return Buffer.from(view.buffer);
 }
 
+const getTileData = (options) => {
+
+
+    return new Promise((resolve, reject) => {
+        let imagePath = `/dhus/odata/v1/Products('${options}')/$value`;
+
+        console.log('https://scihub.copernicus.eu/' + imagePath);
+
+        axios({
+            method: 'get',
+            url: imagePath,
+            baseURL: 'https://scihub.copernicus.eu',
+            responseType: 'stream',
+            timeout: 120000,
+            auth: {
+                username: sentinelUser,
+                password: sentinelPass
+            },
+            httpsAgent: new https.Agent({keepAlive: true})
+        }).then((res) => {
+
+            console.log('RESPONSE STARTS HERE: ' +
+                res);
+            console.log('axios WORKDED!');
+
+            // console.log(response.headers)
+            // console.log(typeof(response.statusCode))
+
+            if (res.statusCode === 404) {
+                console.log('status code is 404')
+                return reject('not found')
+            } else if (res.statusCode === 401) {
+
+                console.log('status code is un-authorized')
+
+                return reject('not authorized')
+            }
+
+            // console.log('image buffer has been received! --------------------------------------');
+            // console.log('image buffer is... ', res);
+            let data = [];
+            let timeout;
+            res.data.on('data', (chunk) => {
+                console.log(`Received ${chunk.length} bytes of data.`);
+                data.push(chunk);
+                clearTimeout(timeout);
+
+                timeout = setTimeout(() => {
+                    console.log('streaming the data took too long');
+                    res.data.destroy();
+                }, 30000);
+            });
+
+            res.data.on('end', () => {
+                console.log('There will be no more data.');
+                let finalBuffer = Buffer.concat(data);
+
+                clearTimeout(timeout);
+
+                resolve(finalBuffer);
+
+            });
+
+            res.data.on('error', (err) => {
+                console.log('something went wrong connecting to the stream')
+                reject(err);
+            });
+        }).catch((err) => {
+            console.log(err);
+        });
+    });
+};
+
+app.get('/jobs', (req, res) => {
+    console.log('recieved a request for currently active jobs');
+
+
+
+    if (jobList.length === 0) {
+        res.status(200).send(JSON.stringify(jobList));
+    } else {
+        res.status(200).send(JSON.stringify(jobList));
+    }
+
+});
+
+app.get('/previewimage/:name', (req, response) => {
+
+    console.log(req.params.name)
+    // On Windows Only ...
+    // use sentinel hub python script
+    const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', req.params.name, '-i']);
+
+    let jsonString = '';
+
+    bat.stdout.on('data', (data) => {
+        console.log(data.toString());
+        jsonString = data.toString();
+    });
+
+    bat.stderr.on('data', (data) => {
+        console.log('something went wrong when trying to fetch the object structure')
+    });
+
+    bat.on('exit', (code) => {
+        console.log(`Child exited with code ${code}`);
+
+
+        if (code === 0) {
+            console.log('fetched the object structure successfully')
+
+        } else {
+            console.log('didnt work, something went wrong');
+
+        }
+
+        let fixedJson = jsonString.replace(/'/g, '"');
+        let jsonObject = JSON.parse(fixedJson);
+
+        console.log(jsonObject[req.params.name + '.SAFE'].GRANULE)
+
+        let nextKey = Object.keys(jsonObject[req.params.name + '.SAFE'].GRANULE)[0]
+        console.log(jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA);
+
+        let finalKey = Object.keys(jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA).find((item) => {
+            if (item.includes('TCI'))
+                return item;
+        })
+
+        console.log('AWS url for hi res TCI image', jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA[finalKey]);
+
+        console.log('lets get the preview instead')
+
+        let stringURL = jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA[finalKey].replace(/TCI.jp2/, 'preview.jpg');
+
+        axios({
+            method: 'get',
+            url: stringURL,
+            baseURL: '',
+            responseType: 'stream',
+            timeout: 120000,
+        }).then((res) => {
+
+            console.log('RESPONSE STARTS HERE: ',
+                res);
+            console.log('axios WORKDED!');
+
+            // console.log(response.headers)
+            // console.log(typeof(response.statusCode))
+
+            if (res.statusCode === 404) {
+                console.log('status code is 404')
+                return reject('not found')
+            } else if (res.statusCode === 401) {
+
+                console.log('status code is un-authorized')
+
+                return reject('not authorized')
+            }
+
+            // // console.log('image buffer has been received! --------------------------------------');
+            // // console.log('image buffer is... ', res);
+            let data = [];
+            let timeout;
+            res.data.on('data', (chunk) => {
+                console.log(`Received ${chunk.length} bytes of data.`);
+                data.push(chunk);
+                clearTimeout(timeout);
+
+                timeout = setTimeout(() => {
+                    console.log('streaming the data took too long');
+                    res.data.destroy();
+                }, 30000);
+            });
+
+            res.data.on('end', () => {
+                console.log('There will be no more data.');
+                let finalBuffer = Buffer.concat(data);
+
+                clearTimeout(timeout);
+
+
+                response.status(200).send(finalBuffer);
+            });
+
+            res.data.on('error', (err) => {
+                console.log('something went wrong connecting to the stream')
+                response.status(500).send();
+            });
+        }).catch((err) => {
+            console.log(err);
+        });
+    });
+});
+
+
+const startDownloadingBatch = (jobID, tileList, index, pageSize) => {
+
+    console.log('inside startDownloadBatch, creating group of promises...')
+    console.log('tileList, index, pageSize', tileList, index, pageSize);
+
+    return new Promise((resolve, reject) => {
+
+        // if no more tiles, then resolve, otherwise recurse
+        let tileListLength = tileList.length;
+        let iteration = pageSize;
+
+        if ((tileListLength - index) < 3) {
+            iteration = tileListLength - index;
+        }
+
+        let promiseDownloadList = [];
+        for(let i = index; i < index + iteration; i++) {
+            let downloadPromise = downloadATile(tileList[i].name, jobID);
+            promiseDownloadList.push(downloadPromise);
+        }
+
+        Promise.all(promiseDownloadList).then((result) => {
+
+            if (tileListLength <= index + iteration) {
+                console.log('there are no more tiles, we are done');
+
+                // uncomment these to do atmos
+
+                // for (let i = index; i < tileListLength; i++) {
+                //     console.log('starting index', index, i, tileListLength);
+                //
+                //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
+                //         console.log('did we run atmos correction correctly? ', result)
+                //         return result;
+                //     }));
+                // }
+
+
+                return resolve(result);
+
+
+            } else {
+                console.log('there are more tiles to do, recursing in startDownloadBatch');
+                // before starting a new batch, lets start a batch of atmos correction on the
+                // data we just downloaded
+
+                // startAtmosCorrectionBatchHere
+                // return the promise list here by adding to promise list
+                // associated with the jobID, then where the downloading batch is finished, we can wait for the
+                // atmos correction promise list to finish
+
+                // uncomment to do atmos
+
+                // for (let i = index; i < index + 3; i++) {
+                //     console.log('starting index', index, i, tileListLength);
+                //
+                //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
+                //         console.log('did we run atmos correction correctly? ', result)
+                //         return result;
+                //     }));
+                // }
+
+
+                return startDownloadingBatch(jobID, tileList, index + 3, pageSize).then((result) => {
+                    console.log('we recursing boys')
+                    return resolve(result);
+                });
+            }
+
+
+        }, (err) => {
+            console.log('something went wrong');
+        });
+
+
+    });
+
+};
+
+const downloadATile = (tileName, jobID) => {
+
+    // use jobID to look up settings
+
+    // newJob.tileStatus[item] = {
+    //     downloading: '',
+    //     atmosCorrection: '',
+    //     processing: ''
+    console.log(`Downloading using AWS tile ${tileName} from job ${jobID})`);
+    jobList[jobID].tileStatus[tileName].downloading = 'inprogress';
+
+    return new Promise((resolve, reject) => {
+
+        // On Windows Only ...
+        // use sentinel hub python script
+        const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', tileName], {cwd: path.resolve(__dirname, '../datacache')});
+
+        bat.stdout.on('data', (data) => {
+            jobList[jobID].jobLog.push('++__' + tileName + "__" + data.toString());
+
+            console.log('++__' + tileName + "__" + data.toString());
+
+            jobList[jobID].tileStatus[tileName].downloading = 'inprogress';
+        });
+
+        bat.stderr.on('data', (data) => {
+            jobList[jobID].jobLog.push('XX__' + tileName + "__" + data.toString());
+
+            console.log('XX__' + tileName + "__" + data.toString());
+
+            jobList[jobID].tileStatus[tileName].downloading = 'failed';
+            reject('ERROR XX__' + tileName + "__" + data.toString());
+        });
+
+        bat.on('exit', (code) => {
+            console.log(`Child exited with code ${code}`);
+
+
+            if (code === 0) {
+                console.log('finished AWS Download successfully')
+                jobList[jobID].tileStatus[tileName].downloading = 'completed';
+                jobList[jobID].status.downloading += 1;
+
+                resolve('success!')
+            } else {
+                console.log('download failed')
+                jobList[jobID].tileStatus[tileName].downloading = 'failed';
+                reject('failed...')
+            }
+
+            console.log('tile status for job id', jobList[jobID].tileStatus, jobID)
+        });
+    });
+};
+
+const atmosCorrectATile = (tileName, jobID) => {
+
+    console.log(`Running atmospheric correction on a tile ${tileName} from job ${jobID})`);
+    jobList[jobID].tileStatus[tileName].atmosCorrection = 'inprogress';
+
+    return new Promise((resolve, reject) => {
+        // WRAP THIS IN A PROMISE!
+
+        // On Windows Only ...
+        // use sentinel hub python script
+        const bat = spawn('cmd.exe', ['/c', 'L2A_Process.bat', '--resolution', jobList[jobID].resolution, tileName + '.SAFE'], {cwd: path.resolve(__dirname, '../datacache')});
+
+        bat.stdout.on('data', (data) => {
+            jobList[jobID].jobLog.push('++__' + tileName + "__" + data.toString());
+
+            console.log('++__' + tileName + "__" + data.toString());
+
+            jobList[jobID].tileStatus[tileName].atmosCorrection = 'inprogress';
+        });
+
+        bat.stderr.on('data', (data) => {
+            jobList[jobID].jobLog.push('XX__' + tileName + "__" + data.toString());
+
+            console.log('ERROR XX__' + tileName + "__" + data.toString());
+
+            jobList[jobID].tileStatus[tileName].atmosCorrection = 'failed';
+
+            reject(data.toString());
+        });
+
+        bat.on('exit', (code) => {
+            console.log(`Child exited with code ${code}`);
+
+
+            if (code === 0) {
+                console.log('finished atmospheric correction successfully')
+                jobList[jobID].tileStatus[tileName].atmosCorrection = 'completed';
+                jobList[jobID].status.atmosCorrection += 1;
+
+                resolve('success!================================ ATMOS CORRECTION on a tile done')
+            } else {
+                console.log('atmospheric correction failed')
+                jobList[jobID].tileStatus[tileName].atmosCorrection = 'failed';
+                reject('failed...')
+            }
+
+            console.log('tile status for job id', jobList[jobID].tileStatus, jobID)
+        });
+    });
+};
+
+app.post('/startjob', bodyParser.json(), (req, res) => {
+    console.log('received a POST request at /startjob');
+    console.log(req.body);
+
+    let useAWS = true;
+    let atmosCorrectionRes = 60; // 10, 20, 60
+
+    let jobID = jobCount;
+
+    // should get an options object from the client specifying things like:
+    // bands to return, should clip to study area, file format (simple, .SAFE)
+    // should produce NDVI, NIC, any other composites required.
+
+    // sample job object
+    // {
+    //     dateSubmitted: new Date(),
+    //         dateCompleted: undefined,
+    //     studyArea: undefined, // geojson polygon should go here, from client
+    //     jobID: jobCount,
+    //     dateCompleted: undefined,
+    //     email: req.body.email,
+    //     tileList: req.body.idList,
+    //     status: {
+    //     overall: 'starting',
+    //         downloading: 0,
+    //         atmosCorrection: 0,
+    //         processing: 0
+    // },
+    //     options: {
+    //         deliveryFormat: 'simple', // options here are simple, safe, if safe is selected, then all bands are delivered
+    //             bands: [],
+    //             processing: {
+    //             clip: true, // clip bands and other processed results to study area
+    //                 ndvi: true, // create a vegatation index ratio image from red and nir bands
+    //                 fcni: true, // create a false color composite with nir, red, green
+    //         }
+    //     },
+    //     jobLog: ['Job has been submitted and is starting...'],
+    //         downloadLink: undefined
+    // }
+    //
+
+    console.log(req.body.idList);
+
+    let newJob = {
+        dateSubmitted: new Date(),
+            dateCompleted: undefined,
+        studyArea: undefined, // geojson polygon should go here, from client
+        jobID: jobCount,
+        email: req.body.email,
+        tileList: req.body.idList,
+        tileStatus: {},
+        resolution: 60, // 10, 20, 60m used for atmos correction
+        status: {
+        overall: 'started',
+            downloading: 0,
+            atmosCorrection: 0,
+            processing: 0,
+    },
+        options: {
+            deliveryFormat: 'simple', // options here are simple, safe, if safe is selected, then all bands are delivered
+                bands: [],
+                processing: {
+                clip: false, // clip bands and other processed results to study area
+                    ndvi: false, // create a vegetation index ratio image from red and nir bands
+                    fcni: false, // create a false color composite with nir, red, green
+            }
+        },
+        jobLog: ['Job has been submitted and is starting...'],
+            downloadLink: undefined
+    };
+
+    newJob.tileList.map((item) => {
+        console.log(item);
+        newJob.tileStatus[item.name] = {
+            downloading: 'not started',
+            atmosCorrection: 'not started',
+            processing: 'not started'
+        };
+    });
+
+    // atmosPromiseList[jobID] = [];
+
+    jobList.push(newJob);
+
+    res.status(200).send();
+
+    jobCount += 1;
+
+    let currentId = req.body.idList[0];
+
+    if (!useAWS) {
+        getTileData(currentId.id).then((result) => {
+            console.log('Current Job List', jobList);
+
+            console.log('tile fetching worked!')
+            console.log(result);
+            console.log('writing to file');
+
+            try {
+                fs.writeFile('datacache/' + currentId.name + '.zip', result, (err) => {
+                    if (err) throw err;
+                    console.log('The file has been saved!');
+                });
+            } catch (err) {
+                console.log('Something went wrong', err);
+            }
+
+        }, (err) => {
+            console.log('Something failed when fetching the tile', err);
+        });
+    } else {
+        console.log('Not using ESA data hub...');
+
+        let dataCachePath = path.resolve(__dirname, '../datacache/')
+
+        console.log('PATH: ', __dirname);
+        console.log('Datacache path, ', dataCachePath);
+
+        // okay lets implement multiple tiles
+        // premise: can do three tiles at once without flooding the server or client
+        // 3 downloads should be running at a time (if possible), along side 3 atmos corrections,
+        // 3 processing ops.
+        // downloading is network intensive, while atmos and processing is CPU intense
+        // could do downloading only..., linear chain of promises, wastes CPU cycles
+        // but definitely DO NOT want to be waiting on CPU atmos correction to start downloading again
+        // SHOULD ALWAYS BE DOWNLOADING....
+        // so. linear chain of downloads not great, might not saturate connection to AWS, 3 at a time should
+        // when that batch of Downloading is done, we recurse to do another batch, and start CPU processing
+
+        let amountOfTiles = req.body.idList.length;
+        let tileList = req.body.idList;
+
+        let batchesRequired = Math.ceil(amountOfTiles / 3);
+        let lastBatchAmount = amountOfTiles % 3;
+        let pageSize = 3;
+        let index = 0;
+
+        // so we be paging, need a start index, page size (3)
+        if (batchesRequired === 1)
+            pageSize = lastBatchAmount;
+
+        startDownloadingBatch(jobID, tileList, index, pageSize).then((result) => {
+
+            console.log('Finished+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++');
+            console.log('result', result);
+
+            console.log('ALL DONE!');
+
+            // should run the zip utility and add a url for sendFile to the client
+            // here
+
+
+
+        }, (err) => {
+            console.log('something went wrong downloading, check the logs for the job to see which tile failed', err);
+        });
+
+
+        //
+        // // WRAP THIS IN A PROMISE!
+        //
+        // // On Windows Only ...
+        // // use sentinel hub python script
+        // const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', currentId.name], {cwd: path.resolve(__dirname, '../datacache')});
+        //
+        // bat.stdout.on('data', (data) => {
+        //     console.log(data.toString());
+        //     jobList[jobID].jobLog.push('++ ' + data.toString());
+        // });
+        //
+        // bat.stderr.on('data', (data) => {
+        //     console.log(data.toString());
+        //     jobList[jobID].jobLog.push('XX ' + data.toString());
+        //
+        // });
+        //
+        // bat.on('exit', (code) => {
+        //     console.log(`Child exited with code ${code}`);
+        //     console.log('finished downloading using AWS, running atmos correction now')
+        //
+        //     // WRAP THIS IN A PROMISE!
+        //
+        //     // On Windows Only ...
+        //     // use sentinel hub python script
+        //     const bat = spawn('cmd.exe', ['/c', 'L2A_Process.bat', '--resolution', atmosCorrectionRes, currentId.name + '.SAFE'], {cwd: path.resolve(__dirname, '../datacache')});
+        //
+        //     bat.stdout.on('data', (data) => {
+        //         console.log(data.toString());
+        //         jobList[jobID].jobLog.push('++ ' + data.toString());
+        //     });
+        //
+        //     bat.stderr.on('data', (data) => {
+        //         console.log(data.toString());
+        //         jobList[jobID].jobLog.push('XX ' + data.toString());
+        //     });
+        //
+        //     bat.on('exit', (code) => {
+        //         console.log(`Child exited with code ${code}`);
+        //         console.log('finished atmos correction')
+        //         console.log('JobList', jobList);
+        //         console.log('JOB\'s DONE');
+        //     });
+        // });
+    }
+
+});
+
 app.get('/openaccessdatahub', (req, res) => {
 
     console.log('recieved a request on /openaccessdatahub');
@@ -312,7 +912,7 @@ app.get('/openaccessdatahub', (req, res) => {
             'Transfer-Encoding': 'chunked'
         });
         // using for development, set to -1 in production
-        let maxResults = 10;
+        let maxResults = 30;
 
         for (let [index, item] of itemList.entries()) {
 
@@ -546,60 +1146,8 @@ const getPreviewImage = (obj, base64String) => {
             console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
 
             reject(err);
-            console.log('axios did not worked')
+            console.log('axios did not work')
         });
-
-        // const request = https.request(options, (response) => {
-        //
-        //     var data = [];
-        //
-        //     // console.log(response.headers)
-        //     // console.log(typeof(response.statusCode))
-        //
-        //     if (response.statusCode === 404) {
-        //         console.log('status code is 404')
-        //         return reject('not found')
-        //     } else if(response.statusCode === 401) {
-        //
-        //         console.log('status code is un-authorized')
-        //         return reject('not authorized')
-        //     }
-        //
-        //
-        //     //another chunk of data has been recieved, so append it to `str`
-        //     response.on('data', function (chunk) {
-        //         console.log('binary chunk recieved ----------------')
-        //         data.push(chunk);
-        //     });
-        //
-        //
-        //     //the whole response has been recieved, so we just print it out here
-        //     response.on('end', function () {
-        //         console.log('image buffer has been received! --------------------------------------');
-        //
-        //         let finalBuffer = Buffer.concat(data);
-        //
-        //         if (base64String === true) {
-        //             obj.imagebuffer = finalBuffer.toString('base64');
-        //
-        //             // console.log('resolving promise with image buffer converted to base64 string');
-        //             resolve(obj);
-        //         } else {
-        //             obj.imagebuffer = finalBuffer;
-        //             resolve(obj);
-        //         }
-        //     });
-        //
-        // });
-        //
-        // request.on('error', (err) => {
-        //     console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
-        //     // obj.imagebuffer = undefined;
-        //
-        //     reject(err);
-        // });
-        //
-        // request.end();
     });
 };
 

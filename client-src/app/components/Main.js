@@ -8,6 +8,9 @@ import axios from 'axios';
 import coordinator from 'coordinator';
 
 import moment from 'moment';
+import ReactModal from 'react-modal';
+
+
 
 
 import "../style/_Main.scss";
@@ -61,7 +64,11 @@ export default class Main extends React.Component {
             requestStarted: undefined,
             requestTime: 0,
             currentResultNumber: 0,
-            developerCache: false
+            developerCache: false,
+            showJobModal: false,
+            showJobListModal: false,
+            selectedCount: 0,
+            jobList: []
         };
     }
 
@@ -98,6 +105,12 @@ export default class Main extends React.Component {
            let coords = feature.features[0].geometry.coordinates[0];
 
            console.log('Starting coords', coords);
+
+           // set the polygon to the store so the job has reference to the polygon
+            this.setState({
+                studyAreaPolygon: feature.features[0]
+            });
+
 
            let selectionSource = this.map.getSource('selection-id');
 
@@ -190,13 +203,21 @@ export default class Main extends React.Component {
                         if (item.uuid === this.state.currentTileID)
                             item.selected = !item.selected
                         return item;
-                    })
+                    });
+
+                    let count = 0;
+
+                    newStateList.map((item) => {
+                        if(item.selected === true)
+                            count++
+                    });
 
                     this.setState({
-                        resultList: [...newStateList]
+                        resultsList: [...newStateList],
+                        selectedCount: count
+
                     });
                 }
-
 
             } else {
 
@@ -281,6 +302,10 @@ export default class Main extends React.Component {
             let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
             console.log(currentSource);
             console.log('current footprint', currentFootprint);
+
+            this.setState({
+                currentFootprint: currentFootprint
+            });
 
             if (currentSource === undefined) {
 
@@ -836,8 +861,18 @@ export default class Main extends React.Component {
             return item;
         });
 
+        let count = 0
+
+        updatedResultList.map((item) => {
+            if(item.selected === true)
+                count++
+        });
+
+        console.log(count);
+
         this.setState({
-            resultsList: [...updatedResultList]
+            resultsList: [...updatedResultList],
+            selectedCount: count
         });
 
     };
@@ -850,7 +885,218 @@ export default class Main extends React.Component {
              currentResultNumber: number
          });
 
-         this.setCurrentTile(id);
+        this.setCurrentTile(id);
+
+
+         if (this.state.resultsList[number].localImageURL === "./app/static/noimage.jpg") {
+             // Query the server for a list of ongoing jobs
+
+             // let currentFootprint = this.state.currentFootprint;
+             //
+             // console.log('Current footprint ==========================', currentFootprint);
+             //
+             // axios.get(config.server_address + '/previewimage/' + this.state.resultsList[number].product_name, {responseType: 'arraybuffer', timeout: 10000}).then((response) => {
+             //
+             //     //reset captcha after submission result (SOMEHOW)
+             //     if (response.status === 200) {
+             //
+             //         console.log('it was a success', response.data)
+             //
+             //         console.log(response.data);
+             //
+             //         var arrayBufferView = new Uint8Array( response.data )
+             //
+             //         let blob = new Blob([arrayBufferView], {type: 'image/jpeg'});
+             //
+             //         let objUrl = window.URL.createObjectURL(blob);
+             //
+             //         let newResultsList = this.state.resultsList;
+             //
+             //         newResultsList[number].localImageURL = objUrl;
+             //
+             //         let currentTile = newResultsList[number];
+             //
+             //         this.setState({
+             //             resultsList: [...newResultsList]
+             //         });
+             //
+             //         this.map.removeSource(currentTile.uuid + 'image')
+             //
+             //         console.log(currentTile);
+             //
+             //        console.log('current Footprint geometry', currentFootprint.geometry);
+             //
+             //         let coords = currentFootprint.geometry.geometries[0].coordinates[0];
+             //
+             //         let imageThing = coords.map((item) => {
+             //             return [item[0], item[1]]
+             //         });
+             //
+             //         imageThing.pop()
+             //
+             //         this.map.addSource(currentTile.uuid + 'image', {
+             //             type: 'image',
+             //             url: currentTile.localImageURL,
+             //             coordinates: imageThing
+             //         })
+             //
+             //
+             //         // if( item.imagebuffer !== undefined) {
+             //         //     let blob = this.b64toBlob(item.imagebuffer, 'image/jpg');
+             //         //
+             //         //     let objUrl = window.URL.createObjectURL(blob);
+             //         //
+             //         //     item.localImageURL = objUrl;
+             //         // } else {
+             //         //     item.localImageURL = "./app/static/noimage.jpg";
+             //         // }
+             //
+             //         // this.setState({
+             //         //     showJobListModal: true,
+             //         // })
+             //
+             //     } else {
+             //
+             //         console.log('it was not a success', response.data);
+             //         console.log('unable to fetch preview image from server');
+             //
+             //         // should still show the modal, just with a message saying coms with server failed.
+             //
+             //     }
+             //
+             // }).catch( (error) => {
+             //     console.log(error);
+             //     console.log('something went wrong')
+             // });
+
+             // TODO: bugged
+
+         }
+
+
+    };
+
+    showJobModal = () => {
+
+        this.setState({
+            showJobModal: true,
+        });
+    };
+
+    handleCloseJobModal = () => {
+
+
+
+        this.setState({
+            showJobModal: false,
+            startingJob: ""
+        });
+    };
+
+    showJobListModal = () => {
+        console.log('querying server for job list, then showing the modal');
+
+        // Query the server for a list of ongoing jobs
+        axios.get(config.server_address + '/jobs', {responseType: 'json', timeout: 10000}).then((response) => {
+
+            //reset captcha after submission result (SOMEHOW)
+            if (response.status === 200) {
+
+                console.log('it was a success', response.data)
+
+                console.log(response.data);
+
+                let setupJobList = response.data.map((item) => {
+                    let date = item.dateSubmitted;
+                    item.dateSubmitted = moment(date);
+                    console.log('job recieved from server: ', item)
+                    return item;
+                })
+
+
+                this.setState({
+                    showJobListModal: true,
+                    jobList: setupJobList,
+                })
+
+            } else {
+
+                console.log('it was not a success', response.data);
+                console.log('unable to fetch jobs list from server');
+
+                // should still show the modal, just with a message saying coms with server failed.
+
+            }
+
+        }).catch( (error) => {
+            console.log(error);
+            console.log('something went wrong')
+        });
+    };
+
+    handleCloseJobListModal = () => {
+        this.setState({
+            showJobListModal: false
+        })
+    };
+
+    handleStartJob = () => {
+        console.log('user tried to start a download job');
+
+        this.setState({
+            startingJob: 'Thanks! Starting job on the server....'
+        });
+
+        let tileList = [];
+
+        this.state.resultsList.map((item) => {
+            if (item.selected)
+                tileList.push({
+                    id:item.uuid,
+                    name: item.product_name
+                });
+        });
+
+        let postObject = {
+            email: this.state.jobEmail,
+            idList: tileList
+        };
+
+        console.log('post object', postObject);
+
+        axios.post(config.server_address + '/startjob', postObject, {responseType: 'json'}).then((response) => {
+
+            //reset captcha after submission result (SOMEHOW)
+            if (response.status === 200) {
+
+                console.log('it was a success', response.data)
+
+                this.setState({
+                    startingJob: 'Job was started successfully'
+                });
+
+            } else {
+
+                console.log('it was not a success', response.data);
+                this.setState({
+                    startingJob: 'Sorry, something went wrong on the server, please try again...'
+                });
+
+            }
+
+        }).catch( (error) => {
+            console.log(error);
+            console.log('something went wrong')
+            this.setState({
+                startingJob: 'Sorry, something went wrong on the server, please try again...'
+            });
+        });
+    };
+
+    handleEmailInput = (e) => {
+      this.setState({
+          jobEmail: e.target.value
+      });
     };
 
     render() {
@@ -918,8 +1164,7 @@ export default class Main extends React.Component {
         const style = {
             gridColumn: "span 1",
             gridRow: "span 1",
-            minHeight: "40vh",
-            minWidth: "50vw"
+            minHeight: "450px",
         };
 
         const tileInfoDiv = () => {
@@ -935,21 +1180,17 @@ export default class Main extends React.Component {
                             <img src={currentTile.localImageURL} alt={currentTile.uuid}/>
                         </div>
                         <div className="textInfoDiv">
-                            <h3>Tile Info</h3>
+                            <h3>Current Tile Info</h3>
 
-                            <p className="label">Result #: </p>
-                            <p>{this.state.currentResultNumber + 1}</p>
-
-                            <p className="label">Date: </p>
-                            <p>{currentTile.dateObj.format("MMMM Do YYYY, HH:mm:ss zzz")}</p>
+                            <p className="label">Result #: {this.state.currentResultNumber + 1}</p>
+                            {currentTile.selected ? <p>Selected</p> : <p>Not Selected</p>}
+                            <p className="label">Date:</p> <p>{currentTile.dateObj.format("MMMM Do YYYY, HH:mm:ss zzz")}</p>
                             <p className="label">Tilename: </p>
                             <p>{currentTile.product_name}</p>
                             <p className="label">Ingestion name: </p>
                             <p>{currentTile.ingestionname}</p>
-                            <p className="label">Data Size: </p>
-                            <p>{currentTile.datasize}</p>
-                            <p className="label">Cloudy Pixel %: </p>
-                            <p>{currentTile.cloudy_pixels}</p>
+                            <p className="label">Data Size: {currentTile.datasize}</p><br/>
+                            <p className="label">Cloudy Pixel %: {currentTile.cloudy_pixels}</p>
                         </div>
                     </div>
                 </div>);
@@ -961,14 +1202,106 @@ export default class Main extends React.Component {
             }
         };
 
+        const setupModalContent = () => {
+
+
+            let returnString = '';
+            let jobStatusString = '';
+
+            if (this.state.startingJob !== '') {
+                jobStatusString = this.state.startingJob;
+            }
+
+            if (this.state.resultsList.length === 0) {
+                return (<div><p>You haven't queried for any data yet. Use the polygon selection tool in
+                                    the map to query the server for satellite imagery.</p>
+                                <p>Once you have queried for data it will show in the results list. Once you have
+                                selected the tile data you want, you can then start downloading the high resolution data
+                                    from the server.</p></div>);
+            } else if (this.state.selectedCount === 0) {
+                return (<div><p>You have queried for data, but you haven't selected any to download.
+                    Use the select tile checkbox to select the tiles you want to download.</p>
+                    <p>Alternatively, you can use the arrow up and down keys to navigate, and the spacebar
+                        to select or deselect tiles.</p>
+                    <p>Once you have selected the tile data you want, you can then start downloading the high resolution data
+                        from the server.</p></div>);
+            } else {
+                return (<div>
+                    <p>You have selected the tiles you want to download. Enter your email address below
+                    and a link will be emailed to you once the processing is finished.</p>
+                    <label htmlFor="email-input">Email:</label>
+                    <input id="email-input" value={this.state.jobEmail} onChange={(e) => this.handleEmailInput(e)} type="email"/>
+                    <button className="modal-button" onClick={this.handleStartJob}>Start the Download Job</button>
+                    <p>{jobStatusString}</p>
+
+                </div>);
+            }
+
+        };
+
+        const displayOptionsJobList = (item) => {
+            return 'to do!?';
+        };
+
+        const displayTileListJobList = (tileList) => {
+            return 'to do!?';
+        }
+
+        const setupJobListModal = () => {
+
+            return (<div className="jobTable">
+                <h1>Current and Previous Jobs On Server</h1>
+
+                {this.state.jobList.length === 0 ? <p> No ongoing jobs</p> : (
+                    <table style={{width: '100%'}}>
+                        <thead>
+                        <tr key='rowheader'>
+                            <th>Job ID</th>
+                            <th>Submitted By</th>
+                            <th>Submitted Date</th>
+                            <th>Completed Date</th>
+                            <th># of Tiles</th>
+                            <th>Options</th>
+                            <th>Tile List</th>
+                            <th>Job Status</th>
+                            <th>Download Status</th>
+                            <th>Atmos Correction Status</th>
+                            <th>Processing Status</th>
+                            <th>Download Link</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        { this.state.jobList.map((item, index) => {
+                            return (
+                                <tr key={'row' + index}>
+                                    <td>{item.jobID}</td>
+                                    <td>{item.email }</td>
+                                    <td>{item.dateSubmitted.format("dd, MMM Do YYYY, h:mm a") + '\n' + item.dateSubmitted.fromNow()}</td>
+                                    <td>{item.hasOwnProperty('dateCompleted') ? item.dateCompleted.format("dd, MMM Do YYYY, h:mm a") + '-' + item.dateCompleted.fromNow() : 'not done yet'}</td>
+                                    <td>{item.tileList.length}</td>
+                                    <td>{ displayOptionsJobList(item.options) }</td>
+                                    <td className="max-width">{displayTileListJobList(item.tileList)}</td>
+                                    <td>{ item.status.overall }</td>
+                                    <td>{ item.status.downloading + '/' + item.tileList.length}</td>
+                                    <td>{ item.status.atmosCorrection + '/' + item.tileList.length}</td>
+                                    <td>{ item.status.processing + '/' + item.tileList.length}</td>
+                                    <td>{ item.hasOwnProperty('downloadURL') ? item.downloadURL : 'not ready yet'}</td>
+                                </tr>
+                            );
+                        })
+                        }
+                        </tbody>
+                    </table>)}
+            </div>)
+        };
 
         return (
-            <div className='main'>
+            <div className='main' ref={{}}>
 
                 <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
 
                 <div className="resultList">
-                    <h3>Query Results</h3>
+                    <h2>Query Results</h2>
                     <div className="scrollContainer">
                          <div className="list">
                             {this.state.resultsList.map((obj, index) => {
@@ -978,7 +1311,7 @@ export default class Main extends React.Component {
                                     currentTile  = true;
                                 }
 
-                                return (<ResultItem item={obj} itemClicked={this.itemClicked} currentTile={currentTile} resultNumber={index} toggleSelected={this.toggleSelected}/>);
+                                return (<ResultItem key={obj.uuid} item={obj} itemClicked={this.itemClicked} currentTile={currentTile} resultNumber={index} toggleSelected={this.toggleSelected}/>);
                             })}
                         </div>
                     </div>
@@ -999,7 +1332,36 @@ export default class Main extends React.Component {
                     { this.state.requestTime != 0 ? <p>Elapsed time {this.state.requestTime}</p> : ""}
                 </div>
                 <LinearCalendar/>
+                <div className="serverControls">
+                    <button onClick={this.showJobModal}>Start Downloading</button>
+                    <button onClick={this.showJobListModal}>View Active Jobs</button>
+                    <ReactModal
+                        className="startJobModal"
+                        ariaHideApp={false} // TODO: should fix this later for accessibility reasons
+                        isOpen={this.state.showJobModal}
+                        shouldCloseOnOverlayClick={true}
+                        onRequestClose={this.handleCloseJobModal}
+                        contentLabel="Server Downloading Jobs"
+                        style={ {}
 
+                            }>
+                            {setupModalContent()}
+                            <button className="modal-button" onClick={this.handleCloseJobModal}>Close</button>
+                    </ReactModal>
+                    <ReactModal
+                        className="startJobModal jobListModal"
+                        ariaHideApp={false} // TODO: should fix this later for accessibility reasons
+                        isOpen={this.state.showJobListModal}
+                        shouldCloseOnOverlayClick={true}
+                        onRequestClose={this.handleCloseJobListModal}
+                        contentLabel="Server Downloading Jobs"
+                        style={{
+
+                        }}>
+                        {setupJobListModal()}
+                        <button className="modal-button" onClick={this.handleCloseJobListModal}>Close</button>
+                    </ReactModal>
+                </div>
             </div>
         );
     }

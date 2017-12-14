@@ -17,7 +17,7 @@ const ResultItem = (props) => {
 
 
     return (
-        <div key={props.item.uuid} className={classString} onClick={(e) => {
+        <div className={classString} onClick={(e) => {
             console.log(e.target.classList);
             console.log(e.target.classList.contains('selectControl'))
 
@@ -41,7 +41,7 @@ const ResultItem = (props) => {
                 <p className="date">{props.item.dateObj.format("MMMM Do YYYY, HH:mm:ss zzz")}</p>
                 <div className="spaceDiv"></div>
                 <div className="selectionDiv">
-                    <input id={"selectTile " + props.item.uuid} className='selectControl' type='checkbox' defaultChecked={props.item.selected}
+                    <input id={"selectTile " + props.item.uuid} className='selectControl' type='checkbox' defaultChecked={!!props.item.selected} checked={!!props.item.selected}
                                       onChange={(e) => {
 
                                           console.log('what is being clicked here', e, props.item.uuid);

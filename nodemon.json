@@ -1,0 +1,5 @@
+{
+  "ignore": ["client-dist/*", "client-src/*", "datacache/*"],
+  "events": {
+  }
+}

@@ -4,3 +4,4 @@
 /npm-debug.log
 /server-src/*.jpg
 /client-dist
+/datacache
