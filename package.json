@@ -16,6 +16,7 @@
   "license": "MIT",
   "dependencies": {
     "@mapbox/mapbox-gl-draw": "^1.0.3",
+    "archiver": "^2.1.0",
     "aws-sdk": "^2.147.0",
     "axios": "^0.16.2",
     "babel-plugin-transform-class-properties": "^6.24.1",

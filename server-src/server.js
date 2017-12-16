@@ -10,6 +10,7 @@ const bodyParser     = require('body-parser');
 const multer = require('multer')
 const app            = express();
 const axios = require('axios');
+const moment = require('moment');
 
 const fs = require('fs');
 const https = require('https');
@@ -20,12 +21,47 @@ const xml2js = require('xml2js');
 const parseString = xml2js.parseString;
 const { spawn } = require('child_process');
 
+// for zip results files
+var archiver = require('archiver');
 
 // SEt up your auth requirements
 const sentinelUser = process.env.sentinelUser;
 const sentinelPass = process.env.sentinelPass;
 
+// should grab env variables for email here as well
+let jobHistory = undefined;
 
+if (fs.existsSync(path.resolve(__dirname, '../datacache/jobhistory.json'))) {
+    jobHistory = fs.readFileSync(path.resolve(__dirname, '../datacache/jobhistory.json'));
+}
+
+// IMPORTANT DATA
+
+let jobList = [];
+let jobCount = 0;
+
+let atmosPromiseList = [];
+
+// setup default developer options
+let options = {
+    resolution: 60, // this is the resolution the atmos correction is done at, much faster for testing
+    maxResults: -1, // -1 is no limit, set a limit here will make testing the gui easier.
+};
+
+if (jobHistory) {
+    console.log('found existing job history, updating server');
+    console.log(jobHistory);
+
+    jobList = JSON.parse(jobHistory);
+    console.log(jobList);
+
+    jobList.map((item) => {
+        jobCount += 1;
+    });
+
+} else {
+    console.log('no job history found, initing job list to empty array');
+}
 
 let  parseMGRS  = require('./MGRSParse')
 
@@ -38,14 +74,6 @@ const querystring = require('querystring')
 var RateLimit = require('express-rate-limit')
 
 const port = 8000;
-
-
-// IMPORTANT DATA
-
-let jobList = [];
-let jobCount = 0;
-
-let atmosPromiseList = [];
 
 app.enable('trust proxy'); // only if you're behind a reverse proxy (Heroku, Bluemix, AWS if you use an ELB, custom Nginx setup, etc)
 
@@ -275,6 +303,176 @@ function toBytesInt32 (num) {
     return Buffer.from(view.buffer);
 }
 
+const createZipFile = (tileName) => {
+
+    return new Promise((resolve, reject) => {
+
+        // create a file to stream archive data to.
+        var output = fs.createWriteStream(path.resolve(__dirname,'../datacache/zips/' + tileName + '.SAFE.zip'));
+        var archive = archiver('zip', {
+            zlib: { level: 5 } // Sets the compression level.
+        });
+
+        // listen for all archive data to be written
+        // 'close' event is fired only when a file descriptor is involved
+        output.on('close', function() {
+            console.log(archive.pointer() + ' total bytes');
+            console.log('archiver has been finalized and the output file descriptor has closed.');
+
+            resolve('Tile was zipped successfully');
+        });
+
+        // This event is fired when the data source is drained no matter what was the data source.
+        // It is not part of this library but rather from the NodeJS Stream API.
+        // @see: https://nodejs.org/api/stream.html#stream_event_end
+        output.on('end', function() {
+            console.log('Data has been drained');
+        });
+
+        // good practice to catch warnings (ie stat failures and other non-blocking errors)
+        archive.on('warning', function(err) {
+            if (err.code === 'ENOENT') {
+                // log warning
+            } else {
+                // throw error
+                throw err;
+            }
+        });
+
+        // good practice to catch this error explicitly
+        archive.on('error', function(err) {
+            throw err;
+            reject(err);
+        });
+
+        // pipe archive data to the file
+        archive.pipe(output);
+
+        // // append a file from stream
+        //     var file1 = __dirname + '/file1.txt';
+        //     archive.append(fs.createReadStream(file1), { name: 'file1.txt' });
+        //
+        // // append a file from string
+        //     archive.append('string cheese!', { name: 'file2.txt' });
+        //
+        // // append a file from buffer
+        //     var buffer3 = Buffer.from('buff it!');
+        //     archive.append(buffer3, { name: 'file3.txt' });
+        //
+        // // append a file
+        //     archive.file('file1.txt', { name: 'file4.txt' });
+
+        // // append files from a sub-directory and naming it `new-subdir` within the archive
+        //     archive.directory('subdir/', 'new-subdir');
+
+        // append files from a sub-directory, putting its contents at the root of archive
+        console.log(path.resolve(__dirname, '../datacache/', tileName + '.SAFE/'));
+
+        archive.directory(path.resolve(__dirname, '../datacache/', tileName + '.SAFE/'), false);
+
+        // // append files from a glob pattern
+        //     archive.glob('subdir/*.txt');
+
+        // finalize the archive (ie we are done appending files but streams have to finish yet)
+        // 'close', 'end' or 'finish' may be fired right after calling this method so register to them beforehand
+        archive.finalize();
+    });
+
+
+
+};
+
+const createZipJob = (tileList, jobID) => {
+    return new Promise((resolve, reject) => {
+
+        let dateNow = moment().format("YYMMDD_HHmm");
+        let fileName = 'JOBID_' + jobID.toString().padStart(4, "0") + '_' + dateNow;
+
+        // create a file to stream archive data to.
+        var output = fs.createWriteStream(path.resolve(__dirname,'../datacache/zips/' + fileName + '.zip'));
+        var archive = archiver('zip', {
+            zlib: { level: 1 } // Sets the compression level.
+        });
+
+        // listen for all archive data to be written
+        // 'close' event is fired only when a file descriptor is involved
+        output.on('close', function() {
+            console.log(archive.pointer() + ' total bytes');
+            console.log('archiver has been finalized and the output file descriptor has closed.');
+            let jobResolveObject = {
+                message: 'Job was zipped successfully',
+                jobFileName: fileName
+            };
+            resolve(jobResolveObject);
+        });
+
+        // This event is fired when the data source is drained no matter what was the data source.
+        // It is not part of this library but rather from the NodeJS Stream API.
+        // @see: https://nodejs.org/api/stream.html#stream_event_end
+        output.on('end', function() {
+            console.log('Data has been drained');
+        });
+
+        // good practice to catch warnings (ie stat failures and other non-blocking errors)
+        archive.on('warning', function(err) {
+            if (err.code === 'ENOENT') {
+                // log warning
+            } else {
+                // throw error
+                throw err;
+            }
+        });
+
+        // good practice to catch this error explicitly
+        archive.on('error', function(err) {
+            throw err;
+            reject(err);
+        });
+
+        // pipe archive data to the file
+        archive.pipe(output);
+
+        // // append a file from stream
+        //     var file1 = __dirname + '/file1.txt';
+        //     archive.append(fs.createReadStream(file1), { name: 'file1.txt' });
+        //
+        // // append a file from string
+        //     archive.append('string cheese!', { name: 'file2.txt' });
+        //
+        // // append a file from buffer
+        //     var buffer3 = Buffer.from('buff it!');
+        //     archive.append(buffer3, { name: 'file3.txt' });
+        //
+
+        tileList.map((item) => {
+            let correctTileZipName = item.name.replace(/L1C/, 'L2A') + '.SAFE.zip';
+
+            console.log(path.resolve(__dirname, '../datacache/', correctTileZipName));
+            // append a file
+            archive.file(path.resolve(__dirname, '../datacache/zips/', correctTileZipName), {
+                name: correctTileZipName });
+        });
+
+
+
+        // // append files from a sub-directory and naming it `new-subdir` within the archive
+        //     archive.directory('subdir/', 'new-subdir');
+
+        // append files from a sub-directory, putting its contents at the root of archive
+        // console.log(path.resolve(__dirname, '../datacache/', tileName + '.SAFE/'));
+        //
+        // archive.directory(path.resolve(__dirname, '../datacache/', tileName + '.SAFE/'), false);
+
+        // // append files from a glob pattern
+        //     archive.glob('subdir/*.txt');
+
+        // finalize the archive (ie we are done appending files but streams have to finish yet)
+        // 'close', 'end' or 'finish' may be fired right after calling this method so register to them beforehand
+        archive.finalize();
+    });
+};
+
+
 const getTileData = (options) => {
 
 
@@ -358,6 +556,15 @@ app.get('/jobs', (req, res) => {
     } else {
         res.status(200).send(JSON.stringify(jobList));
     }
+
+});
+
+app.post('/options', bodyParser.json(), (req, res) => {
+   console.log('recieved post request to /options');
+
+   console.log('data', req.body);
+
+
 
 });
 
@@ -470,85 +677,212 @@ app.get('/previewimage/:name', (req, response) => {
     });
 });
 
+// TODO: delete this function, a broken bad first attempt
 
-const startDownloadingBatch = (jobID, tileList, index, pageSize) => {
+// const startDownloadingBatch = (jobID, tileList, index, pageSize) => {
+//
+//     console.log('inside startDownloadBatch, creating group of promises...')
+//     console.log('tileList, index, pageSize', tileList, index, pageSize);
+//
+//     return new Promise((resolve, reject) => {
+//
+//         // if no more tiles, then resolve, otherwise recurse
+//         let tileListLength = tileList.length;
+//         let iteration = pageSize;
+//
+//         if ((tileListLength - index) < 3) {
+//             iteration = tileListLength - index;
+//         }
+//
+//         let promiseDownloadList = [];
+//         for(let i = index; i < index + iteration; i++) {
+//             let downloadPromise = downloadATile(tileList[i].name, jobID);
+//             promiseDownloadList.push(downloadPromise);
+//         }
+//
+//         Promise.all(promiseDownloadList).then((result) => {
+//
+//             if (tileListLength <= index + iteration) {
+//                 console.log('there are no more tiles, we are done');
+//
+//                 // uncomment these to do atmos
+//
+//                 // for (let i = index; i < tileListLength; i++) {
+//                 //     console.log('starting index', index, i, tileListLength);
+//                 //
+//                 //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
+//                 //         console.log('did we run atmos correction correctly? ', result)
+//                 //         return result;
+//                 //     }));
+//                 // }
+//
+//
+//                 return resolve(result);
+//
+//
+//             } else {
+//                 console.log('there are more tiles to do, recursing in startDownloadBatch');
+//                 // before starting a new batch, lets start a batch of atmos correction on the
+//                 // data we just downloaded
+//
+//                 // startAtmosCorrectionBatchHere
+//                 // return the promise list here by adding to promise list
+//                 // associated with the jobID, then where the downloading batch is finished, we can wait for the
+//                 // atmos correction promise list to finish
+//
+//                 // uncomment to do atmos
+//
+//                 for (let i = index; i < index + 3; i++) {
+//                     console.log('starting index', index, i, tileListLength);
+//
+//                     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID));
+//
+//                 }
+//
+//
+//                 startDownloadingBatch(jobID, tileList, index + 3, pageSize);
+//             }
+//
+//
+//         }, (err) => {
+//             console.log('something went wrong');
+//         });
+//
+//
+//     });
+//
+// };
 
-    console.log('inside startDownloadBatch, creating group of promises...')
-    console.log('tileList, index, pageSize', tileList, index, pageSize);
+// Code sourced from https://github.com/DukeyToo/es6-promise-patterns
 
-    return new Promise((resolve, reject) => {
+function resourceLimiter(numResources) {
 
-        // if no more tiles, then resolve, otherwise recurse
-        let tileListLength = tileList.length;
-        let iteration = pageSize;
+    let pool = {
+        available: numResources,
+        max: numResources
+    };
 
-        if ((tileListLength - index) < 3) {
-            iteration = tileListLength - index;
+    let futures = []; //array of callbacks to trigger the promised resources
+
+    /*
+     * takes a resource.  returns a promises that resolves when the resource is available.
+     * promises resolve FIFO.
+     */
+    pool.take = function() {
+        if (pool.available > 0) {
+            // no need to wait - take a slot and resolve immediately
+            pool.available -= 1;
+            return Promise.resolve();
+        } else {
+            // need to wait - return promise that resolves when wait is over
+            let p = new Promise(function(resolve, reject) {
+                futures.push(resolve);
+            });
+
+            return p;
         }
+    }
 
-        let promiseDownloadList = [];
-        for(let i = index; i < index + iteration; i++) {
-            let downloadPromise = downloadATile(tileList[i].name, jobID);
-            promiseDownloadList.push(downloadPromise);
-        }
-
-        Promise.all(promiseDownloadList).then((result) => {
-
-            if (tileListLength <= index + iteration) {
-                console.log('there are no more tiles, we are done');
-
-                // uncomment these to do atmos
-
-                // for (let i = index; i < tileListLength; i++) {
-                //     console.log('starting index', index, i, tileListLength);
-                //
-                //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
-                //         console.log('did we run atmos correction correctly? ', result)
-                //         return result;
-                //     }));
-                // }
-
-
-                return resolve(result);
-
-
-            } else {
-                console.log('there are more tiles to do, recursing in startDownloadBatch');
-                // before starting a new batch, lets start a batch of atmos correction on the
-                // data we just downloaded
-
-                // startAtmosCorrectionBatchHere
-                // return the promise list here by adding to promise list
-                // associated with the jobID, then where the downloading batch is finished, we can wait for the
-                // atmos correction promise list to finish
-
-                // uncomment to do atmos
-
-                // for (let i = index; i < index + 3; i++) {
-                //     console.log('starting index', index, i, tileListLength);
-                //
-                //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
-                //         console.log('did we run atmos correction correctly? ', result)
-                //         return result;
-                //     }));
-                // }
-
-
-                return startDownloadingBatch(jobID, tileList, index + 3, pageSize).then((result) => {
-                    console.log('we recursing boys')
-                    return resolve(result);
-                });
-            }
-
-
-        }, (err) => {
-            console.log('something went wrong');
-        });
-
-
+    var emptyPromiseResolver;
+    var emptyPromise = new Promise(function(resolve, reject) {
+        emptyPromiseResolver = resolve;
     });
 
+    /*
+     * returns a resource to the pool
+     */
+    pool.give = function() {
+        if (futures.length) {
+            // we have a task waiting - execute it
+            var future = futures.shift(); // FIFO
+
+            future();
+        } else {
+            // no tasks waiting - increase the available count
+            pool.available += 1;
+            if (pool.available === pool.max) {
+                emptyPromiseResolver('Queue is empty')
+            }
+        }
+    }
+
+    /*
+     * Returns a promise that resolves when the queue is empty
+     */
+    pool.emptyPromise = function() {
+        return emptyPromise;
+    }
+
+    return pool;
 };
+
+// Adapt this function to work with tileList
+
+function maxInProcessThrottle(someInput, times, limit) {
+    var limiter = resourceLimiter(limit);  //max "limit" in-process at a time
+
+    var finalOutput = someInput;
+
+    var tasks = new Array(times);
+
+    function executeTask(i) {
+        return function() {
+            return downloadATile("", i).then(function(result) {
+                finalOutput += result;
+                limiter.give();
+            });
+        }
+    }
+
+    for (var i=0; i<times; i++) {
+        tasks[i] = limiter.take().then(executeTask(i));
+    }
+
+    return Promise.all(tasks).then(function(results) {
+        return finalOutput;
+    });
+};
+
+function downloadTiles(tileList, jobID, limit) {
+    let limiter = resourceLimiter(limit); //max "limit" in-process at a time
+
+    // check the resolution for the job, if the resolution is high, then less tiles should be processed in parallel
+    let atmosLimit = 3;
+    if (jobList[jobID].resolution == 60) {
+        atmosLimit += 1;
+    } else if (jobList[jobID].resolution === 10) {
+        atmosLimit -= 1;
+    }
+
+    let atmosCorrectionLimiter = resourceLimiter(atmosLimit);
+
+    let tilePromises = [];
+    let atmosCorrectPromises = [];
+
+    for (let tile of tileList) {
+        tilePromises.push(limiter.take().then(() => downloadATile(tile.name, jobID).then((result) => {
+            console.log('Result: ', result);
+
+            atmosCorrectPromises.push(atmosCorrectionLimiter.take().then(() => atmosCorrectATile(tile.name, jobID)
+                .then((result) => {
+                    console.log('Result: ', result);
+                    console.log('done atmos correction on a tile')
+                    atmosCorrectionLimiter.give();
+                })));
+
+            limiter.give();
+        })));
+    }
+
+    return Promise.all(tilePromises).then((results) => {
+        console.log('done downloading all tiles =====================================================');
+
+        return Promise.all(atmosCorrectPromises);
+
+    }).then((results) => {
+        console.log('done correcting all tiles ===================================================');
+    });
+}
 
 const downloadATile = (tileName, jobID) => {
 
@@ -661,7 +995,7 @@ app.post('/startjob', bodyParser.json(), (req, res) => {
     console.log(req.body);
 
     let useAWS = true;
-    let atmosCorrectionRes = 60; // 10, 20, 60
+    let atmosCorrectionRes = 10; // 10, 20, 60
 
     let jobID = jobCount;
 
@@ -708,7 +1042,7 @@ app.post('/startjob', bodyParser.json(), (req, res) => {
         email: req.body.email,
         tileList: req.body.idList,
         tileStatus: {},
-        resolution: 60, // 10, 20, 60m used for atmos correction
+        resolution: options.resolution, // 10, 20, 60m used for atmos correction
         status: {
         overall: 'started',
             downloading: 0,
@@ -798,7 +1132,7 @@ app.post('/startjob', bodyParser.json(), (req, res) => {
         if (batchesRequired === 1)
             pageSize = lastBatchAmount;
 
-        startDownloadingBatch(jobID, tileList, index, pageSize).then((result) => {
+        downloadTiles(tileList, jobID, pageSize).then((result) => {
 
             console.log('Finished+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++');
             console.log('result', result);
@@ -808,60 +1142,102 @@ app.post('/startjob', bodyParser.json(), (req, res) => {
             // should run the zip utility and add a url for sendFile to the client
             // here
 
+            console.log('jobStatus', jobList[jobID]);
+
+            let archivePromiseList = [];
+
+            tileList.map((tile) => {
+
+                let correctedTileName = tile.name.replace(/L1C/, 'L2A');
+                console.log('The tilename we want is ', path.resolve(__dirname, '../datacache/zips/', correctedTileName + '.zip'));
+
+                // first, check to see if .zip archive already exists
+                if (fs.existsSync(path.resolve(__dirname, '../datacache/zips/', correctedTileName + '.SAFE.zip'))) {
+                    // Do something
+                    console.log('that tile already has a zip archive');
+                } else {
+                    archivePromiseList.push(createZipFile(correctedTileName).then((result) => {
+                        console.log('created the zip file successfully for ', correctedTileName);
+                    }));
+                }
+                // make sure to convert the filename to use the correct version: L1C --> L2A
+            });
+
+            Promise.all(archivePromiseList).then((result) =>{
+                console.log('all of the individual tile folders were archived, time to archive a the whole job');
+
+                return createZipJob(tileList, jobID);
+
+            }).then((result) => {
+
+                console.log('Succesfully zipped entire job');
+                console.log(result.message);
+
+                console.log('the finished jobs filename is ', result.jobFileName);
+
+                // need to update job data, add link to download,
+                // send email
+
+                // hooray, update jobobject with links for download
+                // send email with download, and we are done
+
+                console.log(jobList[jobID]);
+                jobList[jobID].status.overall = 'completed';
+
+                jobList[jobID].downloadLink = {
+                    jobDownload: result.jobFileName + '.zip',
+                    tilesDownload: []
+                };
+
+                tileList.map((item) => {
+                   let finalName = item.name.replace(/L1C/, 'L2A') + '.SAFE.zip';
+
+                   jobList[jobID].downloadLink.tilesDownload.push(finalName);
+                });
+
+                jobList[jobID].dateCompleted = moment();
+
+                console.log('job log file write', path.resolve(__dirname, '../datacache/' + result.jobFileName + '.json'));
+
+                fs.writeFileSync(path.resolve(__dirname, '../datacache/' + result.jobFileName + '.json'),
+                    JSON.stringify(jobList[jobID]));
+
+                console.log('job data updated!');
+
+                fs.writeFileSync(path.resolve(__dirname, '../datacache/' + 'jobhistory' + '.json'),
+                    JSON.stringify(jobList));
 
 
-        }, (err) => {
-            console.log('something went wrong downloading, check the logs for the job to see which tile failed', err);
+
+            }).catch((err) => {
+                console.log('somethign went wrong for one of the tiles ', err);
+
+                // set job to failed here
+                jobList[jobID].status.overall = 'failed';
+            });
+
+
+
+
+        }).catch((err) => {
+            console.log('something went wrong, ', err);
         });
 
-
-        //
-        // // WRAP THIS IN A PROMISE!
-        //
-        // // On Windows Only ...
-        // // use sentinel hub python script
-        // const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', currentId.name], {cwd: path.resolve(__dirname, '../datacache')});
-        //
-        // bat.stdout.on('data', (data) => {
-        //     console.log(data.toString());
-        //     jobList[jobID].jobLog.push('++ ' + data.toString());
-        // });
-        //
-        // bat.stderr.on('data', (data) => {
-        //     console.log(data.toString());
-        //     jobList[jobID].jobLog.push('XX ' + data.toString());
-        //
-        // });
-        //
-        // bat.on('exit', (code) => {
-        //     console.log(`Child exited with code ${code}`);
-        //     console.log('finished downloading using AWS, running atmos correction now')
-        //
-        //     // WRAP THIS IN A PROMISE!
-        //
-        //     // On Windows Only ...
-        //     // use sentinel hub python script
-        //     const bat = spawn('cmd.exe', ['/c', 'L2A_Process.bat', '--resolution', atmosCorrectionRes, currentId.name + '.SAFE'], {cwd: path.resolve(__dirname, '../datacache')});
-        //
-        //     bat.stdout.on('data', (data) => {
-        //         console.log(data.toString());
-        //         jobList[jobID].jobLog.push('++ ' + data.toString());
-        //     });
-        //
-        //     bat.stderr.on('data', (data) => {
-        //         console.log(data.toString());
-        //         jobList[jobID].jobLog.push('XX ' + data.toString());
-        //     });
-        //
-        //     bat.on('exit', (code) => {
-        //         console.log(`Child exited with code ${code}`);
-        //         console.log('finished atmos correction')
-        //         console.log('JobList', jobList);
-        //         console.log('JOB\'s DONE');
-        //     });
-        // });
     }
 
+});
+
+app.get('/getzip/:zipfilename', (req, res) => {
+   console.log('recieved request for zip file, ', req.params.zipfilename);
+
+
+    if (fs.existsSync(path.resolve(__dirname, '../datacache/zips/', req.params.zipfilename))) {
+        // Do something
+        res.sendFile(path.resolve(__dirname, '../datacache/zips/' + req.params.zipfilename));
+        console.log('sending file to client');
+    } else {
+        res.status(404).send();
+    }
 });
 
 app.get('/openaccessdatahub', (req, res) => {
@@ -911,8 +1287,9 @@ app.get('/openaccessdatahub', (req, res) => {
             'Content-Type': 'text/plain',
             'Transfer-Encoding': 'chunked'
         });
+
         // using for development, set to -1 in production
-        let maxResults = 30;
+        let maxResults = options.maxResults;
 
         for (let [index, item] of itemList.entries()) {
 
@@ -925,16 +1302,8 @@ app.get('/openaccessdatahub', (req, res) => {
         }
 
         Promise.all(promiseList).then((result) => {
-            //console.log(result);
-
-            // res.status(200).send(JSON.stringify(result));
-
 
             console.log('all done! Everything was transferred to client successfully====================================');
-            // res.end('fuck you', (e) => {
-            //     console.log('Sent the end message');
-            //     console.log('e');
-            // });
 
             res.end();
 

@@ -94,7 +94,18 @@ export default class Main extends React.Component {
         });
 
         // Create a Draw control
-        this.draw = new mapboxgldraw();
+        this.draw = new mapboxgldraw({
+
+            displayControlsDefault: false,
+            controls: {
+                point: false,
+                line_string: false,
+                polygon: true,
+                trash: true,
+                combine_features: false,
+                uncombine_features: false
+            }
+        });
 
         // Add the Draw control to your map
         this.map.addControl(this.draw);
@@ -286,7 +297,10 @@ export default class Main extends React.Component {
             console.log('TileUTM ident', tileUTM);
 
             // get the right footprint from the list of tile foot prints
-            let currentFootprint = this.state.tileFootprint.filter((tile) => tile.name === tileUTM)[0];
+            let currentFootprint = this.state.tileFootprint.filter((tile) => {
+                console.log(tile);
+                return tile.name === tileUTM
+            })[0];
 
             let coords = currentFootprint.geometry.geometries[0].coordinates[0];
 
@@ -744,7 +758,10 @@ export default class Main extends React.Component {
                         });
 
                         // we have the state, lets write it out to localStorage on if we want to do developer mode
-                        window.localStorage.setItem('localResultList', JSON.stringify(localList));
+                        if (localList.length < 50) {
+                            window.localStorage.setItem('localResultList', JSON.stringify(localList));
+                        }
+
 
                         // Load the footprints for the retrieved data
                         // First get teh uniq tile zones in the retrieved data
@@ -891,6 +908,8 @@ export default class Main extends React.Component {
          if (this.state.resultsList[number].localImageURL === "./app/static/noimage.jpg") {
              // Query the server for a list of ongoing jobs
 
+             // TODO: Fix this so the user can reload broken image previews (IMPORTNATN!)
+
              // let currentFootprint = this.state.currentFootprint;
              //
              // console.log('Current footprint ==========================', currentFootprint);
@@ -972,7 +991,16 @@ export default class Main extends React.Component {
              // TODO: bugged
 
          }
+    };
 
+    showJobDetailModal = (jobid) => {
+        console.log('The user wants to view details for ' + jobid + '.');
+
+        // TODO: create job detail modal, display download links for each tile
+        // status for each tile, and the job log
+        // the detail page will show a list of tiles, with status for each stage (downloading, atmos, processing),
+        // download link for each
+        // below this, in a scrollable container, the entire log for the job should be shown, thats it
 
     };
 
@@ -984,8 +1012,6 @@ export default class Main extends React.Component {
     };
 
     handleCloseJobModal = () => {
-
-
 
         this.setState({
             showJobModal: false,
@@ -1009,10 +1035,15 @@ export default class Main extends React.Component {
                 let setupJobList = response.data.map((item) => {
                     let date = item.dateSubmitted;
                     item.dateSubmitted = moment(date);
+
+                    if (item.dateCompleted !== undefined) {
+                        let date2 = item.dateCompleted;
+                        item.dateCompleted = moment(date2);
+                    }
+
                     console.log('job recieved from server: ', item)
                     return item;
-                })
-
+                });
 
                 this.setState({
                     showJobListModal: true,
@@ -1025,7 +1056,6 @@ export default class Main extends React.Component {
                 console.log('unable to fetch jobs list from server');
 
                 // should still show the modal, just with a message saying coms with server failed.
-
             }
 
         }).catch( (error) => {
@@ -1253,7 +1283,7 @@ export default class Main extends React.Component {
                 <h1>Current and Previous Jobs On Server</h1>
 
                 {this.state.jobList.length === 0 ? <p> No ongoing jobs</p> : (
-                    <table style={{width: '100%'}}>
+                    <table style={{width: '100%', border: '1px solid lightgray'}}>
                         <thead>
                         <tr key='rowheader'>
                             <th>Job ID</th>
@@ -1267,6 +1297,7 @@ export default class Main extends React.Component {
                             <th>Download Status</th>
                             <th>Atmos Correction Status</th>
                             <th>Processing Status</th>
+                            <th>View Details</th>
                             <th>Download Link</th>
                         </tr>
                         </thead>
@@ -1285,7 +1316,8 @@ export default class Main extends React.Component {
                                     <td>{ item.status.downloading + '/' + item.tileList.length}</td>
                                     <td>{ item.status.atmosCorrection + '/' + item.tileList.length}</td>
                                     <td>{ item.status.processing + '/' + item.tileList.length}</td>
-                                    <td>{ item.hasOwnProperty('downloadURL') ? item.downloadURL : 'not ready yet'}</td>
+                                    <td><button onClick={() => this.showJobDetailModal(item.jobID)}>Details</button></td>
+                                    <td>{ item.hasOwnProperty('downloadLink') ? <a href={config.server_address + '/getzip/' + item.downloadLink.jobDownload}>Ready!</a> : 'Not Ready'}</td>
                                 </tr>
                             );
                         })
@@ -1301,7 +1333,7 @@ export default class Main extends React.Component {
                 <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
 
                 <div className="resultList">
-                    <h2>Query Results</h2>
+                    <h2>{ this.state.resultsList.length > 0 ? ('Query Results: ' + this.state.resultsList.length + ' results') : 'Query Results'}</h2>
                     <div className="scrollContainer">
                          <div className="list">
                             {this.state.resultsList.map((obj, index) => {
@@ -1326,6 +1358,14 @@ export default class Main extends React.Component {
                     <br/>
                     <input id="developerCache" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />
                     <label htmlFor="developerCache">Use Local Cache for GUI Development</label>
+                    <br/>
+
+                    {/* TODO: use developer options on server POST /options */}
+                    {/*<input id="atmosCorrectionResolution" type='text' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
+                    {/*<label htmlFor="developerCache">Set the resolution for atmos correction (m)</label>*/}
+                    {/*<br/>*/}
+                    {/*<input id="maxResults" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
+                    {/*<label htmlFor="developerCache">Use Local Cache for GUI Development</label>*/}
                 </div>
                 <div className="serverInfo">
                     { this.state.requestStarted !== undefined ? <p>Request Started</p> : <p>No request running</p>}
