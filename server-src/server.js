@@ -564,7 +564,10 @@ app.post('/options', bodyParser.json(), (req, res) => {
 
    console.log('data', req.body);
 
+   options.maxResults = req.body.maxResults;
+   options.resolution = req.body.resolution;
 
+   res.status(200).send();
 
 });
 

@@ -68,7 +68,9 @@ export default class Main extends React.Component {
             showJobModal: false,
             showJobListModal: false,
             selectedCount: 0,
-            jobList: []
+            jobList: [],
+            maxResults: -1,
+            resolution: 60
         };
     }
 
@@ -1045,6 +1047,10 @@ export default class Main extends React.Component {
                     return item;
                 });
 
+                setupJobList.sort((a, b) => {
+                    return b.dateSubmitted - a.dateSubmitted;
+                });
+
                 this.setState({
                     showJobListModal: true,
                     jobList: setupJobList,
@@ -1127,6 +1133,79 @@ export default class Main extends React.Component {
       this.setState({
           jobEmail: e.target.value
       });
+    };
+
+    handleMaxResultsChange = (e) => {
+        console.log('changing max results')
+        if (e.key === 'Enter') {
+            if (!isNaN(parseInt(e.target.value, 10)) && parseInt(e.target.value) >= 1) {
+                this.setState({
+                    maxResults: parseInt(e.target.value)
+                })
+
+                this.setOptionsOnServer(this.state.resolution, parseInt(e.target.value));
+            }
+        }
+    };
+
+    toggleMaxResults = (e) => {
+        if (this.state.maxResults === -1) {
+            this.setOptionsOnServer(this.state.resolution, 0);
+        } else {
+            this.setOptionsOnServer(this.state.resolution, -1);
+
+        }
+
+
+    };
+
+    handleResolutionChange = (e) => {
+        console.log('user changed the resolution', e.target.value);
+        let newRes = 0;
+        switch (e.target.value) {
+            case "ten":
+                newRes = 10;
+                break;
+            case "twenty":
+                newRes = 20;
+                break;
+            case "sixty":
+                newRes = 60;
+                break
+        }
+
+        this.setOptionsOnServer(newRes, this.state.maxResults);
+
+    };
+
+    setOptionsOnServer = (resolution, maxresults) => {
+        let postObject = {
+            maxResults: maxresults,
+            resolution: resolution
+        };
+
+        axios.post(config.server_address + '/options', postObject, {responseType: 'json'}).then((response) => {
+
+            //reset captcha after submission result (SOMEHOW)
+            if (response.status === 200) {
+
+                console.log('it was a success, options were set on the server', response.data)
+
+                this.setState({
+                    resolution,
+                    maxResults: maxresults
+                })
+
+
+            } else {
+
+                console.log('it was not a success, updating the options did not work', response.data);
+            }
+
+        }).catch( (error) => {
+            console.log(error);
+            console.log('something went wrong')
+        });
     };
 
     render() {
@@ -1256,6 +1335,7 @@ export default class Main extends React.Component {
                     <p>Once you have selected the tile data you want, you can then start downloading the high resolution data
                         from the server.</p></div>);
             } else {
+                
                 return (<div>
                     <p>You have selected the tiles you want to download. Enter your email address below
                     and a link will be emailed to you once the processing is finished.</p>
@@ -1291,8 +1371,6 @@ export default class Main extends React.Component {
                             <th>Submitted Date</th>
                             <th>Completed Date</th>
                             <th># of Tiles</th>
-                            <th>Options</th>
-                            <th>Tile List</th>
                             <th>Job Status</th>
                             <th>Download Status</th>
                             <th>Atmos Correction Status</th>
@@ -1307,11 +1385,9 @@ export default class Main extends React.Component {
                                 <tr key={'row' + index}>
                                     <td>{item.jobID}</td>
                                     <td>{item.email }</td>
-                                    <td>{item.dateSubmitted.format("dd, MMM Do YYYY, h:mm a") + '\n' + item.dateSubmitted.fromNow()}</td>
-                                    <td>{item.hasOwnProperty('dateCompleted') ? item.dateCompleted.format("dd, MMM Do YYYY, h:mm a") + '-' + item.dateCompleted.fromNow() : 'not done yet'}</td>
+                                    <td>{item.dateSubmitted.format("MMM Do YYYY, ddd, h:mm a") + '\n (' + item.dateSubmitted.fromNow() + ')'}</td>
+                                    <td>{item.hasOwnProperty('dateCompleted') ? item.dateCompleted.format("MMM Do YYYY, ddd, h:mm a") + '\n (' + item.dateCompleted.fromNow() + ')' : 'not done yet'}</td>
                                     <td>{item.tileList.length}</td>
-                                    <td>{ displayOptionsJobList(item.options) }</td>
-                                    <td className="max-width">{displayTileListJobList(item.tileList)}</td>
                                     <td>{ item.status.overall }</td>
                                     <td>{ item.status.downloading + '/' + item.tileList.length}</td>
                                     <td>{ item.status.atmosCorrection + '/' + item.tileList.length}</td>
@@ -1327,6 +1403,45 @@ export default class Main extends React.Component {
             </div>)
         };
 
+        const setupLimitInput = () => {
+            if (this.state.maxResults !== -1) {
+                return (
+                    <div>
+                        <input id="maxResults" type='input' defaultValue={this.state.maxResults}
+                               onKeyPress={this.handleMaxResultsChange}/>
+                        <p>Limit set to {this.state.maxResults}</p>
+                    </div>
+                )
+            } else {
+                return <p></p>
+            }
+        };
+
+        const setupResolutionSelect = () => {
+
+            return (
+                <div>
+                    <p>Select atmospheric correction resolution:</p>
+                    <div>
+                        <input type="radio" id="10"
+                        name="resolution" value="ten" checked={this.state.resolution === 10} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="10">10 m </label>
+
+                        <input type="radio" id="20"
+                        name="resolution" value="twenty" checked={this.state.resolution === 20} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="20">20 m</label>
+
+                        <input type="radio" id="60"
+                        name="resolution" value="sixty" checked={this.state.resolution === 60} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="60">60 m</label>
+                    </div>
+                </div>
+            )
+
+        };
+
+
+
         return (
             <div className='main' ref={{}}>
 
@@ -1337,7 +1452,7 @@ export default class Main extends React.Component {
                     <div className="scrollContainer">
                          <div className="list">
                             {this.state.resultsList.map((obj, index) => {
-                                console.log('index', index);
+
                                 let currentTile = false;
                                 if (obj.uuid === this.state.currentTileID) {
                                     currentTile  = true;
@@ -1360,12 +1475,15 @@ export default class Main extends React.Component {
                     <label htmlFor="developerCache">Use Local Cache for GUI Development</label>
                     <br/>
 
-                    {/* TODO: use developer options on server POST /options */}
-                    {/*<input id="atmosCorrectionResolution" type='text' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
+                    {/*/!* TODO: use developer options on server POST /options *!/*/}
+                    {/*<input id="atmosCorrectionResolution" type='text' value={this.state.correctionResolution} onChange={this.toggleDeveloperCache} />*/}
                     {/*<label htmlFor="developerCache">Set the resolution for atmos correction (m)</label>*/}
                     {/*<br/>*/}
-                    {/*<input id="maxResults" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
-                    {/*<label htmlFor="developerCache">Use Local Cache for GUI Development</label>*/}
+
+                    <input id="maxResultsCheckbox" type='checkbox' defaultChecked={this.state.maxResults !== -1} onChange={this.toggleMaxResults} />
+                    <label htmlFor="maxResultsCheckbox">Limit Query Results</label>
+                    { setupLimitInput() }
+                    { setupResolutionSelect()}
                 </div>
                 <div className="serverInfo">
                     { this.state.requestStarted !== undefined ? <p>Request Started</p> : <p>No request running</p>}
