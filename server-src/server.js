@@ -15,11 +15,13 @@ const moment = require('moment');
 const fs = require('fs');
 const https = require('https');
 const path = require('path');
-
+const os = require('os');
 const xml2js = require('xml2js');
 
 const parseString = xml2js.parseString;
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
+
+const { PromiseResourcePool } = require('./promise-resource-pool');
 
 // for zip results files
 var archiver = require('archiver');
@@ -27,6 +29,8 @@ var archiver = require('archiver');
 // SEt up your auth requirements
 const sentinelUser = process.env.sentinelUser;
 const sentinelPass = process.env.sentinelPass;
+
+console.log(sentinelUser, sentinelPass);
 
 // should grab env variables for email here as well
 let jobHistory = undefined;
@@ -85,7 +89,7 @@ var apiLimiter = new RateLimit({
     delayMs: 0 // disabled
 });
 
-app.use("/public", express.static(path.join(__dirname + '/public')));
+app.use(express.static('client-dist'));
 
 app.use(function(req, res, next) {
     res.header("Access-Control-Allow-Origin", "*");
@@ -196,7 +200,7 @@ const getCompleteItemList = (polygonString, itemList, startDate) => {
                         else
                             itemList.push(r.feed.entry);
                     }
-                    resolve();
+                    resolve(itemList);
                 }, (err) => {
                     console.log('error occured when gathering all the search results')
                     reject(err)
@@ -235,7 +239,6 @@ const getPrefixFragment = (prefix) => {
                 console.log('something went wrong');
                 reject(err);
             } else {
-                // console.log(data);
                 if (data.Contents.length === 0 && data.CommonPrefixes.length !== 0) {
                     console.log('meaning there are further directories to explore, common prefix length is non zero');
                     console.log(data.CommonPrefixes)
@@ -307,9 +310,14 @@ const createZipFile = (tileName) => {
 
     return new Promise((resolve, reject) => {
 
+        let result = fs.existsSync(path.resolve(__dirname, '../datacache/zips/'));
+        if (!result) {
+            fs.mkdirSync(path.resolve(__dirname, '../datacache/zips/'))
+        }
+
         // create a file to stream archive data to.
-        var output = fs.createWriteStream(path.resolve(__dirname,'../datacache/zips/' + tileName + '.SAFE.zip'));
-        var archive = archiver('zip', {
+        let output = fs.createWriteStream(path.resolve(__dirname,'../datacache/zips/' + tileName + '.SAFE.zip'));
+        let archive = archiver('zip', {
             zlib: { level: 5 } // Sets the compression level.
         });
 
@@ -453,8 +461,6 @@ const createZipJob = (tileList, jobID) => {
                 name: correctTileZipName });
         });
 
-
-
         // // append files from a sub-directory and naming it `new-subdir` within the archive
         //     archive.directory('subdir/', 'new-subdir');
 
@@ -474,7 +480,6 @@ const createZipJob = (tileList, jobID) => {
 
 
 const getTileData = (options) => {
-
 
     return new Promise((resolve, reject) => {
         let imagePath = `/dhus/odata/v1/Products('${options}')/$value`;
@@ -549,8 +554,6 @@ const getTileData = (options) => {
 app.get('/jobs', (req, res) => {
     console.log('recieved a request for currently active jobs');
 
-
-
     if (jobList.length === 0) {
         res.status(200).send(JSON.stringify(jobList));
     } else {
@@ -564,323 +567,69 @@ app.post('/options', bodyParser.json(), (req, res) => {
 
    console.log('data', req.body);
 
+   options.maxResults = req.body.maxResults;
+   options.resolution = req.body.resolution;
 
+   res.status(200).send();
 
 });
 
-app.get('/previewimage/:name', (req, response) => {
-
-    console.log(req.params.name)
-    // On Windows Only ...
-    // use sentinel hub python script
-    const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', req.params.name, '-i']);
-
-    let jsonString = '';
-
-    bat.stdout.on('data', (data) => {
-        console.log(data.toString());
-        jsonString = data.toString();
-    });
-
-    bat.stderr.on('data', (data) => {
-        console.log('something went wrong when trying to fetch the object structure')
-    });
-
-    bat.on('exit', (code) => {
-        console.log(`Child exited with code ${code}`);
-
-
-        if (code === 0) {
-            console.log('fetched the object structure successfully')
-
-        } else {
-            console.log('didnt work, something went wrong');
-
-        }
-
-        let fixedJson = jsonString.replace(/'/g, '"');
-        let jsonObject = JSON.parse(fixedJson);
-
-        console.log(jsonObject[req.params.name + '.SAFE'].GRANULE)
-
-        let nextKey = Object.keys(jsonObject[req.params.name + '.SAFE'].GRANULE)[0]
-        console.log(jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA);
-
-        let finalKey = Object.keys(jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA).find((item) => {
-            if (item.includes('TCI'))
-                return item;
-        })
-
-        console.log('AWS url for hi res TCI image', jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA[finalKey]);
-
-        console.log('lets get the preview instead')
-
-        let stringURL = jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA[finalKey].replace(/TCI.jp2/, 'preview.jpg');
-
-        axios({
-            method: 'get',
-            url: stringURL,
-            baseURL: '',
-            responseType: 'stream',
-            timeout: 120000,
-        }).then((res) => {
-
-            console.log('RESPONSE STARTS HERE: ',
-                res);
-            console.log('axios WORKDED!');
-
-            // console.log(response.headers)
-            // console.log(typeof(response.statusCode))
-
-            if (res.statusCode === 404) {
-                console.log('status code is 404')
-                return reject('not found')
-            } else if (res.statusCode === 401) {
-
-                console.log('status code is un-authorized')
-
-                return reject('not authorized')
-            }
-
-            // // console.log('image buffer has been received! --------------------------------------');
-            // // console.log('image buffer is... ', res);
-            let data = [];
-            let timeout;
-            res.data.on('data', (chunk) => {
-                console.log(`Received ${chunk.length} bytes of data.`);
-                data.push(chunk);
-                clearTimeout(timeout);
-
-                timeout = setTimeout(() => {
-                    console.log('streaming the data took too long');
-                    res.data.destroy();
-                }, 30000);
-            });
-
-            res.data.on('end', () => {
-                console.log('There will be no more data.');
-                let finalBuffer = Buffer.concat(data);
-
-                clearTimeout(timeout);
-
-
-                response.status(200).send(finalBuffer);
-            });
-
-            res.data.on('error', (err) => {
-                console.log('something went wrong connecting to the stream')
-                response.status(500).send();
-            });
-        }).catch((err) => {
-            console.log(err);
-        });
-    });
-});
-
-// TODO: delete this function, a broken bad first attempt
-
-// const startDownloadingBatch = (jobID, tileList, index, pageSize) => {
-//
-//     console.log('inside startDownloadBatch, creating group of promises...')
-//     console.log('tileList, index, pageSize', tileList, index, pageSize);
-//
-//     return new Promise((resolve, reject) => {
-//
-//         // if no more tiles, then resolve, otherwise recurse
-//         let tileListLength = tileList.length;
-//         let iteration = pageSize;
-//
-//         if ((tileListLength - index) < 3) {
-//             iteration = tileListLength - index;
-//         }
-//
-//         let promiseDownloadList = [];
-//         for(let i = index; i < index + iteration; i++) {
-//             let downloadPromise = downloadATile(tileList[i].name, jobID);
-//             promiseDownloadList.push(downloadPromise);
-//         }
-//
-//         Promise.all(promiseDownloadList).then((result) => {
-//
-//             if (tileListLength <= index + iteration) {
-//                 console.log('there are no more tiles, we are done');
-//
-//                 // uncomment these to do atmos
-//
-//                 // for (let i = index; i < tileListLength; i++) {
-//                 //     console.log('starting index', index, i, tileListLength);
-//                 //
-//                 //     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID).then((result) => {
-//                 //         console.log('did we run atmos correction correctly? ', result)
-//                 //         return result;
-//                 //     }));
-//                 // }
-//
-//
-//                 return resolve(result);
-//
-//
-//             } else {
-//                 console.log('there are more tiles to do, recursing in startDownloadBatch');
-//                 // before starting a new batch, lets start a batch of atmos correction on the
-//                 // data we just downloaded
-//
-//                 // startAtmosCorrectionBatchHere
-//                 // return the promise list here by adding to promise list
-//                 // associated with the jobID, then where the downloading batch is finished, we can wait for the
-//                 // atmos correction promise list to finish
-//
-//                 // uncomment to do atmos
-//
-//                 for (let i = index; i < index + 3; i++) {
-//                     console.log('starting index', index, i, tileListLength);
-//
-//                     atmosPromiseList.push(atmosCorrectATile(tileList[i].name, jobID));
-//
-//                 }
-//
-//
-//                 startDownloadingBatch(jobID, tileList, index + 3, pageSize);
-//             }
-//
-//
-//         }, (err) => {
-//             console.log('something went wrong');
-//         });
-//
-//
-//     });
-//
-// };
-
-// Code sourced from https://github.com/DukeyToo/es6-promise-patterns
-
-function resourceLimiter(numResources) {
-
-    let pool = {
-        available: numResources,
-        max: numResources
-    };
-
-    let futures = []; //array of callbacks to trigger the promised resources
-
-    /*
-     * takes a resource.  returns a promises that resolves when the resource is available.
-     * promises resolve FIFO.
-     */
-    pool.take = function() {
-        if (pool.available > 0) {
-            // no need to wait - take a slot and resolve immediately
-            pool.available -= 1;
-            return Promise.resolve();
-        } else {
-            // need to wait - return promise that resolves when wait is over
-            let p = new Promise(function(resolve, reject) {
-                futures.push(resolve);
-            });
-
-            return p;
-        }
-    }
-
-    var emptyPromiseResolver;
-    var emptyPromise = new Promise(function(resolve, reject) {
-        emptyPromiseResolver = resolve;
-    });
-
-    /*
-     * returns a resource to the pool
-     */
-    pool.give = function() {
-        if (futures.length) {
-            // we have a task waiting - execute it
-            var future = futures.shift(); // FIFO
-
-            future();
-        } else {
-            // no tasks waiting - increase the available count
-            pool.available += 1;
-            if (pool.available === pool.max) {
-                emptyPromiseResolver('Queue is empty')
-            }
-        }
-    }
-
-    /*
-     * Returns a promise that resolves when the queue is empty
-     */
-    pool.emptyPromise = function() {
-        return emptyPromise;
-    }
-
-    return pool;
-};
-
-// Adapt this function to work with tileList
-
-function maxInProcessThrottle(someInput, times, limit) {
-    var limiter = resourceLimiter(limit);  //max "limit" in-process at a time
-
-    var finalOutput = someInput;
-
-    var tasks = new Array(times);
-
-    function executeTask(i) {
-        return function() {
-            return downloadATile("", i).then(function(result) {
-                finalOutput += result;
-                limiter.give();
-            });
-        }
-    }
-
-    for (var i=0; i<times; i++) {
-        tasks[i] = limiter.take().then(executeTask(i));
-    }
-
-    return Promise.all(tasks).then(function(results) {
-        return finalOutput;
-    });
-};
 
 function downloadTiles(tileList, jobID, limit) {
-    let limiter = resourceLimiter(limit); //max "limit" in-process at a time
+   
+    return new Promise((resolve, reject) => {
+        // check the resolution for the job, if the resolution is high, then less tiles should be processed in parallel
+        let atmosLimit = 3;
+        if (jobList[jobID].resolution == 60) {
+            atmosLimit += 1;
+        } else if (jobList[jobID].resolution === 10) {
+            atmosLimit -= 1;
+        }
 
-    // check the resolution for the job, if the resolution is high, then less tiles should be processed in parallel
-    let atmosLimit = 3;
-    if (jobList[jobID].resolution == 60) {
-        atmosLimit += 1;
-    } else if (jobList[jobID].resolution === 10) {
-        atmosLimit -= 1;
-    }
+        let tilePromises = [];
+        let atmosCorrectPromises = [];
+        
+        // stagger the initial round of tasks so that they do not compete for stdout
+        let maxLoops = tileList.length;
+        let counter = 0;
+        let batchSize = 3;
 
-    let atmosCorrectionLimiter = resourceLimiter(atmosLimit);
+        for (let tile of tileList) {
+                                
+            console.log(tile);
+            const promiseWrapper = (tile, jobID) => {
+                console.log('starting promise');
+                return downloadATile(tile.name, jobID).then((result) => {
+                    console.log('Result: ', result);    
+                    
+                    return atmosCorrectATile(tile.name, jobID)
+                        .then((result) => {
+                            console.log('Result: ', result);
+                            console.log('done atmos correction on a tile')
+                            return result;
+                        });
+        
+                }).catch((e) => {
+                    console.log('Download or correction went wrong', e)
+                });
+            }
 
-    let tilePromises = [];
-    let atmosCorrectPromises = [];
+            tilePromises.push({
+                promise: promiseWrapper,
+                args: [tile, jobID]
+            });
+        }
 
-    for (let tile of tileList) {
-        tilePromises.push(limiter.take().then(() => downloadATile(tile.name, jobID).then((result) => {
-            console.log('Result: ', result);
+        let promisePool = new PromiseResourcePool(tilePromises, (resultList) => {
+            console.log('done all products=====================================!!!!!');
+            console.log(resultList)
+            if (resultList.length > 0)
+                resolve(resultList)
+            else
+                reject('No jobs finished successfully');
+        }, 3, 3000);
 
-            atmosCorrectPromises.push(atmosCorrectionLimiter.take().then(() => atmosCorrectATile(tile.name, jobID)
-                .then((result) => {
-                    console.log('Result: ', result);
-                    console.log('done atmos correction on a tile')
-                    atmosCorrectionLimiter.give();
-                })));
-
-            limiter.give();
-        })));
-    }
-
-    return Promise.all(tilePromises).then((results) => {
-        console.log('done downloading all tiles =====================================================');
-
-        return Promise.all(atmosCorrectPromises);
-
-    }).then((results) => {
-        console.log('done correcting all tiles ===================================================');
+        promisePool.executor();
     });
 }
 
@@ -899,9 +648,37 @@ const downloadATile = (tileName, jobID) => {
 
         // On Windows Only ...
         // use sentinel hub python script
-        const bat = spawn('cmd.exe', ['/c', 'sentinelhub.aws', '--product', tileName], {cwd: path.resolve(__dirname, '../datacache')});
+        let arglist;
+        let cmd;
+
+        console.log(process.env.PATH);
+        console.log('TRYING TO DOWNLOAD');
+
+        let result = fs.existsSync(path.resolve(__dirname, '../datacache'));
+        if (!result) {
+            fs.mkdirSync(path.resolve(__dirname, '../datacache'))
+        }
+    
+        if (os.platform() === 'win32') {
+          arglist = ['/c', 'sentinelhub.aws', '--product', tileName]
+          options = {
+              cwd: path.resolve(__dirname, '../datacache')
+          }
+
+          cmd = 'powershell.exe';
+        } else {
+          arglist = ['--product', tileName]
+          options = {
+              cwd: path.resolve(__dirname, '../datacache')
+          }
+
+          cmd = 'sentinelhub.aws';
+        }
+
+        const bat = spawn(cmd, arglist, options);
 
         bat.stdout.on('data', (data) => {
+            console.log(data.toString());
             jobList[jobID].jobLog.push('++__' + tileName + "__" + data.toString());
 
             console.log('++__' + tileName + "__" + data.toString());
@@ -910,6 +687,7 @@ const downloadATile = (tileName, jobID) => {
         });
 
         bat.stderr.on('data', (data) => {
+            console.log(data.toString());
             jobList[jobID].jobLog.push('XX__' + tileName + "__" + data.toString());
 
             console.log('XX__' + tileName + "__" + data.toString());
@@ -920,22 +698,21 @@ const downloadATile = (tileName, jobID) => {
 
         bat.on('exit', (code) => {
             console.log(`Child exited with code ${code}`);
-
-
             if (code === 0) {
-                console.log('finished AWS Download successfully')
+                console.log('finished downloading  successfully')
                 jobList[jobID].tileStatus[tileName].downloading = 'completed';
                 jobList[jobID].status.downloading += 1;
 
-                resolve('success!')
+                resolve('success!================================ DOWNLOAD on a tile done')
             } else {
-                console.log('download failed')
+                console.log('Download failed')
                 jobList[jobID].tileStatus[tileName].downloading = 'failed';
                 reject('failed...')
             }
 
-            console.log('tile status for job id', jobList[jobID].tileStatus, jobID)
+            console.log('tile status for job id', jobList[jobID].tileStatus, jobID) 
         });
+
     });
 };
 
@@ -947,9 +724,23 @@ const atmosCorrectATile = (tileName, jobID) => {
     return new Promise((resolve, reject) => {
         // WRAP THIS IN A PROMISE!
 
-        // On Windows Only ...
-        // use sentinel hub python script
-        const bat = spawn('cmd.exe', ['/c', 'L2A_Process.bat', '--resolution', jobList[jobID].resolution, tileName + '.SAFE'], {cwd: path.resolve(__dirname, '../datacache')});
+        console.log(jobList[jobID])
+
+        if (os.platform() === 'win32') {
+          arglist =  ['/c', 'L2A_Process', '--resolution', jobList[jobID].resolution, tileName + '.SAFE']
+          options = {
+            cwd: path.resolve(__dirname, '../datacache')
+            }
+          cmd = 'powershell.exe';
+        } else {
+          arglist =  ['--resolution', jobList[jobID].resolution, tileName + '.SAFE'];
+          options = {
+              cwd: path.resolve(__dirname, '../datacache')
+          }
+          cmd = 'L2A_Process';
+        }
+
+        const bat = spawn(cmd, arglist, options);
 
         bat.stdout.on('data', (data) => {
             jobList[jobID].jobLog.push('++__' + tileName + "__" + data.toString());
@@ -985,8 +776,9 @@ const atmosCorrectATile = (tileName, jobID) => {
                 reject('failed...')
             }
 
-            console.log('tile status for job id', jobList[jobID].tileStatus, jobID)
+            console.log('tile status for job id', jobList[jobID].tileStatus, jobID)        
         });
+      
     });
 };
 
@@ -1266,7 +1058,7 @@ app.get('/openaccessdatahub', (req, res) => {
 
     let startRequestTime = new Date();
 
-    getCompleteItemList(polygonString, itemList, startRequestTime).then(() => {
+    getCompleteItemList(polygonString, itemList, startRequestTime).then((resultList) => {
         // All done boss, lets filter the array and send a response to the client
         // Each item should have
         // Title
@@ -1288,7 +1080,8 @@ app.get('/openaccessdatahub', (req, res) => {
             'Transfer-Encoding': 'chunked'
         });
 
-        // using for development, set to -1 in production
+        console.log(resultList)
+
         let maxResults = options.maxResults;
 
         for (let [index, item] of itemList.entries()) {
@@ -1304,7 +1097,6 @@ app.get('/openaccessdatahub', (req, res) => {
         Promise.all(promiseList).then((result) => {
 
             console.log('all done! Everything was transferred to client successfully====================================');
-
             res.end();
 
         }, (err) => {
@@ -1315,15 +1107,42 @@ app.get('/openaccessdatahub', (req, res) => {
             console.log('something went wrong WOOP WOOP in the catch block');
             res.status(401).send('something went wrong trying to reformat each data item and fetch the preview image.');
         });
+        
 
+    //     // using for development, set to -1 in production
+    //     let maxResults = options.maxResults;
 
-    }, (err) => {
-        console.log('the promise was rejected, ', err)
-        res.status(500).send(err);
-    }).catch((err) => {
-        console.log(err);
-        console.log('sorry something went wrong');
-        res.status(401).send(err);
+    //     for (let [index, item] of itemList.entries()) {
+
+    //         if (maxResults !== -1)
+    //             if (index === maxResults)
+    //                 break
+
+    //         console.log('-==================== stargin promise for item ' + index + ' of ' + itemList.length);
+    //         promiseList.push(reformatDataItem(item, index, itemList.length, res))
+    //     }
+
+    //     Promise.all(promiseList).then((result) => {
+
+    //         console.log('all done! Everything was transferred to client successfully====================================');
+    //         res.end();
+
+    //     }, (err) => {
+    //         console.log('something went wrong, in the reject block!', err);
+    //         console.log('something went wrong trying to reformat each data item and fetch the preview image.')
+    //         res.status(401).send('something went wrong trying to reformat each data item and fetch the preview image.');
+    //     }).catch((err) => {
+    //         console.log('something went wrong WOOP WOOP in the catch block');
+    //         res.status(401).send('something went wrong trying to reformat each data item and fetch the preview image.');
+    //     });
+    // }, (err) => {
+    //     console.log('the promise was rejected, ', err)
+    //     res.status(500).send(err);
+    // }).catch((err) => {
+    //     console.log(err);
+    //     console.log('sorry something went wrong');
+    //     res.status(401).send(err);
+    // });
     });
 });
 
@@ -1436,90 +1255,176 @@ const getPreviewImage = (obj, base64String) => {
             timeout: 5000
         };
 
-        console.log(justPath);
+        console.log('just the path', justPath);
 
         console.log('in get preview image, sending http request...')
 
         // try implementing with another library
 
-        axios({
-            method: 'get',
-            url: justPath,
-            baseURL: 'https://scihub.copernicus.eu',
-            responseType: 'stream',
-            timeout: 120000,
-            auth: {
-                username: sentinelUser,
-                password: sentinelPass
-            },
-            httpsAgent: new https.Agent({ keepAlive: true })
-        }).then((res) => {
+        // axios({
+        //     method: 'get',
+        //     url: justPath,
+        //     baseURL: 'https://scihub.copernicus.eu',
+        //     responseType: 'stream',
+        //     timeout: 120000,
+        //     auth: {
+        //         username: sentinelUser,
+        //         password: sentinelPass
+        //     },
+        //     httpsAgent: new https.Agent({ keepAlive: true })
+        // }).then((res) => {
 
-            console.log('RESPONSE STARTS HERE: ' +
-                res);
-            console.log('axios WORKDED!')
+        //     console.log('RESPONSE STARTS HERE: ' +
+        //         res);
+        //     console.log('axios WORKDED!')
 
-            // console.log(response.headers)
-            // console.log(typeof(response.statusCode))
+        //     // console.log(response.headers)
+        //     // console.log(typeof(response.statusCode))
 
-            if (res.statusCode === 404) {
-                console.log('status code is 404')
-                return reject('not found')
-            } else if(res.statusCode === 401) {
+        //     if (res.statusCode === 404) {
+        //         console.log('status code is 404')
+        //         return reject('not found')
+        //     } else if(res.statusCode === 401) {
 
-                console.log('status code is un-authorized')
+        //         console.log('status code is un-authorized')
 
-                return reject('not authorized')
-            }
+        //         return reject('not authorized')
+        //     }
 
-            // console.log('image buffer has been received! --------------------------------------');
-            // console.log('image buffer is... ', res);
-            let data =[];
-            let timeout;
-            res.data.on('data', (chunk) => {
-                console.log(`Received ${chunk.length} bytes of data.`);
-                data.push(chunk);
-                clearTimeout(timeout);
+        //     // console.log('image buffer has been received! --------------------------------------');
+        //     // console.log('image buffer is... ', res);
+        //     let data =[];
+        //     let timeout;
+        //     res.data.on('data', (chunk) => {
+        //         console.log(`Received ${chunk.length} bytes of data.`);
+        //         data.push(chunk);
+        //         clearTimeout(timeout);
 
-                timeout = setTimeout(() => {
-                    console.log('streaming the data took too long');
-                    res.data.destroy();
-                }, 30000);
-            });
+        //         timeout = setTimeout(() => {
+        //             console.log('streaming the data took too long');
+        //             res.data.destroy();
+        //         }, 30000);
+        //     });
 
-            res.data.on('end', () => {
-                console.log('There will be no more data.');
-                let finalBuffer = Buffer.concat(data);
+        //     res.data.on('end', () => {
+        //         console.log('There will be no more data.');
+        //         let finalBuffer = Buffer.concat(data);
 
-                clearTimeout(timeout);
+        //         clearTimeout(timeout);
 
-                if (base64String === true) {
-                    obj.imagebuffer = finalBuffer.toString('base64');
+        //         if (base64String === true) {
+        //             obj.imagebuffer = finalBuffer.toString('base64');
 
-                    // console.log(obj.imagebuffer);
-                    // console.log('resolving promise with image buffer converted to base64 string');
-                    resolve(obj);
-                } else {
-                    obj.imagebuffer = finalBuffer;
-                    resolve(obj);
-                }
-            });
+        //             // console.log(obj.imagebuffer);
+        //             // console.log('resolving promise with image buffer converted to base64 string');
+        //             resolve(obj);
+        //         } else {
+        //             obj.imagebuffer = finalBuffer;
+        //             resolve(obj);
+        //         }
+        //     });
 
-            res.data.on('error', (err) => {
-                console.log('something went wrong connecting to the stream')
-                reject(err);
-            });
+        //     res.data.on('error', (err) => {
+        //         console.log('something went wrong connecting to the stream')
+        //         reject(err);
+        //     });
 
-        }).catch((err) => {
-            console.log(err);
-            console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
+        // }).catch((err) => {
+        //     console.log(err);
+        //     console.log('GET IMAGE PREVIEW: somethign went wrong trying to fetch the image preview', err);
 
-            reject(err);
-            console.log('axios did not work')
-        });
+        //     reject(err);
+        //     console.log('axios did not work')
+        // });
     });
 };
 
+let testCount = 0;
+
+app.get('/test', (req, response) => {
+    testCount++;
+
+    console.log('testCount ', testCount);
+    console.log(req.params);
+    console.log('testing testing tinst');
+    setTimeout(() => {
+        response.status(200).send('hello');
+    }, 1000);
+});
+
+app.get('/quicklook/:name', (req, response) => {
+
+    console.log(req.params.name)
+    
+    // let stringURL = jsonObject[req.params.name + '.SAFE'].GRANULE[nextKey].IMG_DATA[finalKey].replace(/TCI.jp2/, 'preview.jpg');
+    // let stringURL = req.params.name
+
+    // Quicklookurl https://scihub.copernicus.eu/dhus/odata/v1/Products('f4d9d5b2-48de-4f64-b4c9-16ad52222f6c')/Products('Quicklook')/$value
+    let urlImage = `dhus/odata/v1/Products('${req.params.name}')/Products('Quicklook')/$value`
+
+    axios({
+        method: 'get',
+        url: urlImage,
+        baseURL: 'https://scihub.copernicus.eu',
+        responseType: 'stream',
+        timeout: 5000,
+        auth: {
+            username: sentinelUser,
+            password: sentinelPass
+        },
+        httpsAgent: new https.Agent({keepAlive: true})
+    }).then((res) => {
+
+        console.log('RESPONSE STARTS HERE: ',
+            res);
+        console.log('axios WORKDED!');
+
+        // console.log(response.headers)
+        // console.log(typeof(response.statusCode))
+
+        if (res.statusCode === 404) {
+            console.log('status code is 404')
+            return reject('not found')
+        } else if (res.statusCode === 401) {
+
+            console.log('status code is un-authorized')
+
+            return reject('not authorized')
+        }
+
+        // // console.log('image buffer has been received! --------------------------------------');
+        // // console.log('image buffer is... ', res);
+        let data = [];
+        let timeout;
+        res.data.on('data', (chunk) => {
+            console.log(`Received ${chunk.length} bytes of data.`);
+            data.push(chunk);
+            clearTimeout(timeout);
+
+            timeout = setTimeout(() => {
+                console.log('streaming the data took too long');
+                res.data.destroy();
+            }, 30000);
+        });
+
+        res.data.on('end', () => {
+            console.log('There will be no more data.');
+            let finalBuffer = Buffer.concat(data);
+
+            clearTimeout(timeout);
+            response.status(200).send(finalBuffer);
+
+        });
+
+        res.data.on('error', (err) => {
+            console.log('something went wrong connecting to the stream')
+            response.status(500).send();
+        });
+    }).catch((err) => {
+        console.log(err);
+    });
+
+});
 
 const reformatDataItem = (item, index, length, res) => {
 
@@ -1585,27 +1490,31 @@ const reformatDataItem = (item, index, length, res) => {
         geoJsonFootprint.coordinates.push(singlePolygon.reverse())
 
         obj.footprint = geoJsonFootprint;
-
+        res.write(JSON.stringify(obj) + '_#_', 'utf8', () => {
+            console.log('write is finished')
+            resolve(obj);
+        });        
+        
         // calling get preview image
-        console.log('calling get Preview from within reformate data... ');
-        getPreviewImage(obj, true).then((result) => {
-            console.log('Got preview image', result.uuid);
-            console.log(`resolving ${index} of ${length}`);
-            res.write(JSON.stringify(result) + '_#_', 'utf8', () => {
-                console.log('write is finished')
-                resolve(result);
-            });
+        // console.log('calling get Preview from within reformate data... ');
+        // getPreviewImage(obj, true).then((result) => {
+        //     console.log('Got preview image', result.uuid);
+        //     console.log(`resolving ${index} of ${length}`);
+        //     res.write(JSON.stringify(result) + '_#_', 'utf8', () => {
+        //         console.log('write is finished')
+        //         resolve(result);
+        //     });
 
-        }, (err) => {
-            console.log('REFORMATDATAITEM_ something went wrong when trying to get the preview image,' +
-                'setting image buffer to undefined and resolving', err);
-            obj.imageBuffer = undefined;
-            console.log(`resolving ${index} of ${length}, could not fetch image preview`);
-            console.log(obj);
-            res.write(JSON.stringify(obj) + '_#_', 'utf8', () => {
-                console.log('write is finished')
-                resolve(obj);
-            });
-        });
+        // }, (err) => {
+        //     console.log('REFORMATDATAITEM_ something went wrong when trying to get the preview image,' +
+        //         'setting image buffer to undefined and resolving', err);
+        //     obj.imageBuffer = undefined;
+        //     console.log(`resolving ${index} of ${length}, could not fetch image preview`);
+        //     console.log(obj);
+        //     res.write(JSON.stringify(obj) + '_#_', 'utf8', () => {
+        //         console.log('write is finished')
+        //         resolve(obj);
+        //     });
+        // });
     });
 };

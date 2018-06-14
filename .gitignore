@@ -5,3 +5,5 @@
 /server-src/*.jpg
 /client-dist
 /datacache
+yarn-error.log
+yarn.lock

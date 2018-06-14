@@ -5,14 +5,12 @@ var SRC_DIR = path.resolve(__dirname, "client-src");
 
 var mode   = process.env.NODE_ENV;
 
-
 var config = {
     entry: SRC_DIR + "/app/index.js",
     output: {
         path: DIST_DIR + "/app",
         filename: "bundle.js",
         publicPath: "/",
-        //contentBase: DIST_DIR + "/static",
     },
     module: {
         rules: [

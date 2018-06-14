@@ -10,9 +10,6 @@ import coordinator from 'coordinator';
 import moment from 'moment';
 import ReactModal from 'react-modal';
 
-
-
-
 import "../style/_Main.scss";
 
 import config from 'Config';
@@ -29,6 +26,8 @@ import LinearCalendar from './LinearCalendar';
 import ResultItem from './ResultItem';
 
 const position = [51.505, -0.09];
+
+import { PromiseResourcePool } from '../../../server-src/promise-resource-pool';
 
 mapboxgl.accessToken = 'pk.eyJ1Ijoic2N1bGxlbiIsImEiOiJ1UVAwZ19BIn0.wn4ltQcyl9P5j3bAmNJEPg'
 
@@ -48,6 +47,7 @@ export default class Main extends React.Component {
         this.scrollDebouncer = false;
         this.previousScrollTop = 0;
         this.userScroll = false;
+        this.scrollTimeout = null;
 
         this.layerList = [];
 
@@ -68,7 +68,11 @@ export default class Main extends React.Component {
             showJobModal: false,
             showJobListModal: false,
             selectedCount: 0,
-            jobList: []
+            jobList: [],
+            maxResults: -1,
+            resolution: 60,
+            scrollPosition: 0,
+            currentCell: 0
         };
     }
 
@@ -85,17 +89,104 @@ export default class Main extends React.Component {
             console.log('map clicked', e)
         });
 
-        let scrollContainer = document.getElementsByClassName('scrollContainer')[0];
+        window.addEventListener("scroll", (e) => {
+            
 
-        document.addEventListener('mousewheel', () => {
+            clearTimeout(this.scrollTimeout)
 
-            this.userScroll = true;
-            console.log('this is the user')
-        });
+            this.scrollTimeout = setTimeout(() => {
+                this.userScroll = true;
+                console.log('this is the user');
+        
+                let scrollContainer = document.getElementsByClassName('resultList')[0];
+                console.log(scrollContainer)
+                console.log(scrollContainer.scrollTop)
+        
+                let headerHeight = 46;
+                let cellHeight = 152;
+                let yOffset = scrollContainer.scrollTop;
+                let currentCell = Math.floor((yOffset + headerHeight) / cellHeight) + 1;
+                console.log(currentCell)
+    
+                this.setState({
+                    currentCell
+                });
 
+                let imagePromiseList = [];
+
+                if (currentCell >= 25) {
+
+                    let localList = this.state.resultsList.slice(currentCell -10, currentCell + 10);
+                    let count = 0;
+                    let otherCount = 0;
+                    
+                    for (let tile of localList) {
+                        
+                        console.log(tile);
+                        console.log('TESTING TSTING');
+                        if (tile.localImageURL === "./app/static/noimage.jpg") {
+
+                            const promiseWrapper = (tile) => {
+                                console.log('starting promise');
+                                return axios.get(config.server_address + '/quicklook/' + tile.uuid, {responseType: 'arraybuffer',
+                                                                                                    timeout: 5000
+                                }).then((response) => {
+        
+                                    console.log(response);
+                                    //reset captcha after submission result (SOMEHOW)
+                                    if (response.status === 200) {
+                
+                                        console.log('it was a success')
+                                        let imageArray = response.data
+                                        let blob = new Blob([imageArray], {type: 'image/jpeg'});
+                
+                                        let objUrl = window.URL.createObjectURL(blob);
+                                        console.log(objUrl);
+                                        
+                                        let resultsList = this.state.resultsList;
+        
+                                        let picture = resultsList.find((item) => {
+                                            if (item.uuid == tile.uuid) {
+                                                return true
+                                            }
+                                        })
+        
+                                        picture.localImageURL = objUrl;
+        
+                                        this.setState({
+                                            resultsList: resultsList
+                                        });
+                                    }
+                                }).catch((e) => {
+                                    console.log(e)
+                                });
+                            }                            
+                            
+                            imagePromiseList.push({
+                                promise: promiseWrapper,
+                                args: [tile]
+                            });
+                    
+                        }
+                    }
+                    
+                    let promisePool = new PromiseResourcePool(imagePromiseList, (resultList) => {
+                        console.log('done all images=====================================!!!!!');
+                        console.log(resultList)
+                        for (let result of resultList) {
+                            console.log(result);
+                        }
+                    }, 2, 200);
+    
+                    promisePool.executor();
+                }
+
+            }, 1000);
+            
+        }, true);
+        
         // Create a Draw control
         this.draw = new mapboxgldraw({
-
             displayControlsDefault: false,
             controls: {
                 point: false,
@@ -276,6 +367,7 @@ export default class Main extends React.Component {
     }
 
     setCurrentTile(uuid, event) {
+
         console.log('Tile clicked', event)
 
         console.log('Tile id : ', uuid)
@@ -314,13 +406,16 @@ export default class Main extends React.Component {
             }
 
             let currentSource = this.map.getSource(currentTile.uuid + 'footprint')
+
+            let currentSourceImage = this.map.getSource(currentTile.uuid + 'image');
+
             console.log(currentSource);
             console.log('current footprint', currentFootprint);
 
             this.setState({
                 currentFootprint: currentFootprint
             });
-
+            
             if (currentSource === undefined) {
 
                 console.log('-------------------------------------Never encountered this source before, adding....')
@@ -341,16 +436,40 @@ export default class Main extends React.Component {
 
                 imageThing.pop()
 
-                console.log('image footprint 2', imageThing)
+                console.log('image footprint 2', imageThing);
 
                 this.map.addSource(currentTile.uuid + 'image', {
                     type: 'image',
                     url: currentTile.localImageURL,
                     coordinates: imageThing
-                })
+                });
+            } else {
+                console.log(currentSourceImage);
+                    if (currentSourceImage !== undefined) {
+
+                    let type = currentSourceImage.type;
+                    let coords = currentSourceImage.coordinates;
+                    let id = currentSourceImage.id;
+
+                    console.log(type, coords, id);
+
+                    this.map.removeSource(currentTile.uuid + 'image');
+
+                    this.map.addSource(id, {
+                        type,
+                        url: currentTile.localImageURL,
+                        coordinates: coords
+                    });
+                }
             }
 
             console.log('---------------------------------------------------------adding this footprint to map... ')
+
+            this.map.addLayer({
+                id: currentTile.uuid + 'image',
+                type: 'raster',
+                source: currentTile.uuid + 'image'
+            });
 
             this.map.addLayer({
                 id: currentTile.uuid + 'footprint',
@@ -360,12 +479,6 @@ export default class Main extends React.Component {
                     'line-width': 5,
                     'line-color': '#ff88da'
                 }
-            });
-
-            this.map.addLayer({
-                id: currentTile.uuid + 'image',
-                type: 'raster',
-                source: currentTile.uuid + 'image'
             });
 
 
@@ -730,11 +843,14 @@ export default class Main extends React.Component {
                         for (let item of jsonStrings) {
 
                             if( item.imagebuffer !== undefined) {
+
                                 let blob = this.b64toBlob(item.imagebuffer, 'image/jpg');
 
                                 let objUrl = window.URL.createObjectURL(blob);
 
                                 item.localImageURL = objUrl;
+
+
                             } else {
                                 item.localImageURL = "./app/static/noimage.jpg";
                             }
@@ -751,7 +867,107 @@ export default class Main extends React.Component {
 
                             // sort descending, reverse (A - B) to sort ascending
                             return b.dateObj - a.dateObj;
-                        })
+                        });
+
+                        // let resourcePool = new PromiseResourcePool(promArr, (results) => {
+                        //     console.log('ALLL DONE,   ', results)
+                        // }, 3, 1000);
+                        // array of promises, func to run after the promises are complete, poolSize, delayBetweenPromises
+                        // resourcePool.executor();
+                        let imagePromiseList = [];
+                        let resultList = [];
+                        let count = 0;
+                        let otherCount = 0;
+                        for (let tile of localList) {
+                            
+                            console.log(tile);
+                            console.log('TESTING TSTING')
+
+                            const promiseWrapper = (tile) => {
+                                console.log('starting promise');
+                                // return axios.get(config.server_address + '/test').then((response) => {
+                                //     // {responseType: 'arraybuffer'}
+                                //     console.log(response);
+                                //     //reset captcha after submission result (SOMEHOW)
+                                //     if (response.status === 200) {
+                                //         console.log("HELLO HELLO HELLO: ===============", response.data);
+                                //         console.log('[%s] Promise with value %s just ended', new Date().toISOString())
+                                        
+                                //         resultList.push(response);
+                                //         console.log('it was a success');
+                                //         console.log('COUNT   :: ', count);
+                                //         count++;
+                                //         return response.data;
+                                //     }
+                                // }).catch((e) => {
+                                //     console.log(e)
+                                // });
+                                return axios.get(config.server_address + '/quicklook/' + tile.uuid, {responseType: 'arraybuffer',
+                                                                                                    timeout: 5000
+                            
+                            
+                            }).then((response) => {
+
+                                    console.log(response);
+                                    //reset captcha after submission result (SOMEHOW)
+                                    if (response.status === 200) {
+                
+                                        console.log('it was a success')
+                                        let imageArray = response.data
+                                        let blob = new Blob([imageArray], {type: 'image/jpeg'});
+                
+                                        let objUrl = window.URL.createObjectURL(blob);
+                                        console.log(objUrl)
+
+                                        console.log(response.request.responseURL)
+
+                                        let uuid_url_list = response.request.responseURL.split('/')
+                                        console.log(uuid_url_list)
+                                        let uuid_url = uuid_url_list[uuid_url_list.length - 1]
+                                        console.log(uuid_url)
+                                        
+                                        let resultsList = this.state.resultsList;
+
+                                        let picture = resultsList.find((item) => {
+                                            if (item.uuid == uuid_url) {
+                                                return true
+                                            }
+                                        })
+
+                                        picture.localImageURL = objUrl;
+
+                                        this.setState({
+                                            resultsList: resultsList
+                                        });
+                                    }
+                                }).catch((e) => {
+                                    console.log(e)
+                                });
+                            }
+
+                            if (otherCount < 25) {
+                                imagePromiseList.push({
+                                    promise: promiseWrapper,
+                                    args: [tile]
+                                });
+
+                            }
+                        
+
+                            otherCount++;
+                        }
+
+                        console.log(resultList);
+
+                        let promisePool = new PromiseResourcePool(imagePromiseList, (resultList) => {
+                            console.log('done all images=====================================!!!!!');
+                            console.log(resultList)
+                            for (let result of resultList) {
+                                console.log(result);
+                            }
+                        }, 5, 200);
+
+                        promisePool.executor();
 
                         this.setState({
                             resultsList: [...localList]
@@ -902,95 +1118,53 @@ export default class Main extends React.Component {
              currentResultNumber: number
          });
 
-        this.setCurrentTile(id);
-
 
          if (this.state.resultsList[number].localImageURL === "./app/static/noimage.jpg") {
-             // Query the server for a list of ongoing jobs
+             console.log('Image is not found, trying to get it from the server');
 
-             // TODO: Fix this so the user can reload broken image previews (IMPORTNATN!)
+             axios.get(config.server_address + '/quicklook/' + id, {responseType: 'arraybuffer'}).then((response) => {
 
-             // let currentFootprint = this.state.currentFootprint;
-             //
-             // console.log('Current footprint ==========================', currentFootprint);
-             //
-             // axios.get(config.server_address + '/previewimage/' + this.state.resultsList[number].product_name, {responseType: 'arraybuffer', timeout: 10000}).then((response) => {
-             //
-             //     //reset captcha after submission result (SOMEHOW)
-             //     if (response.status === 200) {
-             //
-             //         console.log('it was a success', response.data)
-             //
-             //         console.log(response.data);
-             //
-             //         var arrayBufferView = new Uint8Array( response.data )
-             //
-             //         let blob = new Blob([arrayBufferView], {type: 'image/jpeg'});
-             //
-             //         let objUrl = window.URL.createObjectURL(blob);
-             //
-             //         let newResultsList = this.state.resultsList;
-             //
-             //         newResultsList[number].localImageURL = objUrl;
-             //
-             //         let currentTile = newResultsList[number];
-             //
-             //         this.setState({
-             //             resultsList: [...newResultsList]
-             //         });
-             //
-             //         this.map.removeSource(currentTile.uuid + 'image')
-             //
-             //         console.log(currentTile);
-             //
-             //        console.log('current Footprint geometry', currentFootprint.geometry);
-             //
-             //         let coords = currentFootprint.geometry.geometries[0].coordinates[0];
-             //
-             //         let imageThing = coords.map((item) => {
-             //             return [item[0], item[1]]
-             //         });
-             //
-             //         imageThing.pop()
-             //
-             //         this.map.addSource(currentTile.uuid + 'image', {
-             //             type: 'image',
-             //             url: currentTile.localImageURL,
-             //             coordinates: imageThing
-             //         })
-             //
-             //
-             //         // if( item.imagebuffer !== undefined) {
-             //         //     let blob = this.b64toBlob(item.imagebuffer, 'image/jpg');
-             //         //
-             //         //     let objUrl = window.URL.createObjectURL(blob);
-             //         //
-             //         //     item.localImageURL = objUrl;
-             //         // } else {
-             //         //     item.localImageURL = "./app/static/noimage.jpg";
-             //         // }
-             //
-             //         // this.setState({
-             //         //     showJobListModal: true,
-             //         // })
-             //
-             //     } else {
-             //
-             //         console.log('it was not a success', response.data);
-             //         console.log('unable to fetch preview image from server');
-             //
-             //         // should still show the modal, just with a message saying coms with server failed.
-             //
-             //     }
-             //
-             // }).catch( (error) => {
-             //     console.log(error);
-             //     console.log('something went wrong')
-             // });
+                console.log(response);
+                //reset captcha after submission result (SOMEHOW)
+                if (response.status === 200) {
 
-             // TODO: bugged
+                    console.log('it was a success')
+                    let imageArray = response.data
+                    let blob = new Blob([imageArray], {type: 'image/jpeg'});
 
+                    let objUrl = window.URL.createObjectURL(blob);
+                    console.log(objUrl)
+
+                    console.log(response.request.responseURL)
+
+                    let uuid_url_list = response.request.responseURL.split('/')
+                    console.log(uuid_url_list)
+                    let uuid_url = uuid_url_list[uuid_url_list.length - 1]
+                    console.log(uuid_url)
+                    
+                    let resultsList = this.state.resultsList;
+
+                    let picture = resultsList.find((item) => {
+                        if (item.uuid == uuid_url) {
+                            return true
+                        }
+                    })
+
+                    picture.localImageURL = objUrl;
+
+                    this.setState({
+                        resultsList: resultsList
+                    });
+                    this.setCurrentTile(id);
+
+                }
+
+            }).catch((e) => {
+                console.log(e)
+            });
          }
+         this.setCurrentTile(id);
+
     };
 
     showJobDetailModal = (jobid) => {
@@ -1043,6 +1217,10 @@ export default class Main extends React.Component {
 
                     console.log('job recieved from server: ', item)
                     return item;
+                });
+
+                setupJobList.sort((a, b) => {
+                    return b.dateSubmitted - a.dateSubmitted;
                 });
 
                 this.setState({
@@ -1129,6 +1307,76 @@ export default class Main extends React.Component {
       });
     };
 
+    handleMaxResultsChange = (e) => {
+        console.log('changing max results')
+        if (e.key === 'Enter') {
+            if (!isNaN(parseInt(e.target.value, 10)) && parseInt(e.target.value) >= 1) {
+                this.setState({
+                    maxResults: parseInt(e.target.value)
+                })
+
+                this.setOptionsOnServer(this.state.resolution, parseInt(e.target.value));
+            }
+        }
+    };
+
+    toggleMaxResults = (e) => {
+        if (this.state.maxResults === -1) {
+            this.setOptionsOnServer(this.state.resolution, 0);
+        } else {
+            this.setOptionsOnServer(this.state.resolution, -1);
+        }
+    };
+
+    handleResolutionChange = (e) => {
+        console.log('user changed the resolution', e.target.value);
+        let newRes = 0;
+        switch (e.target.value) {
+            case "ten":
+                newRes = 10;
+                break;
+            case "twenty":
+                newRes = 20;
+                break;
+            case "sixty":
+                newRes = 60;
+                break
+        }
+
+        this.setOptionsOnServer(newRes, this.state.maxResults);
+
+    };
+
+    setOptionsOnServer = (resolution, maxresults) => {
+        let postObject = {
+            maxResults: maxresults,
+            resolution: resolution
+        };
+
+        axios.post(config.server_address + '/options', postObject, {responseType: 'json'}).then((response) => {
+
+            //reset captcha after submission result (SOMEHOW)
+            if (response.status === 200) {
+
+                console.log('it was a success, options were set on the server', response.data)
+
+                this.setState({
+                    resolution,
+                    maxResults: maxresults
+                })
+
+
+            } else {
+
+                console.log('it was not a success, updating the options did not work', response.data);
+            }
+
+        }).catch( (error) => {
+            console.log(error);
+            console.log('something went wrong')
+        });
+    };
+
     render() {
 
         for (let name of this.layerList) {
@@ -1194,7 +1442,7 @@ export default class Main extends React.Component {
         const style = {
             gridColumn: "span 1",
             gridRow: "span 1",
-            minHeight: "450px",
+            minHeight: "40vh",
         };
 
         const tileInfoDiv = () => {
@@ -1256,6 +1504,7 @@ export default class Main extends React.Component {
                     <p>Once you have selected the tile data you want, you can then start downloading the high resolution data
                         from the server.</p></div>);
             } else {
+                
                 return (<div>
                     <p>You have selected the tiles you want to download. Enter your email address below
                     and a link will be emailed to you once the processing is finished.</p>
@@ -1291,8 +1540,6 @@ export default class Main extends React.Component {
                             <th>Submitted Date</th>
                             <th>Completed Date</th>
                             <th># of Tiles</th>
-                            <th>Options</th>
-                            <th>Tile List</th>
                             <th>Job Status</th>
                             <th>Download Status</th>
                             <th>Atmos Correction Status</th>
@@ -1307,11 +1554,9 @@ export default class Main extends React.Component {
                                 <tr key={'row' + index}>
                                     <td>{item.jobID}</td>
                                     <td>{item.email }</td>
-                                    <td>{item.dateSubmitted.format("dd, MMM Do YYYY, h:mm a") + '\n' + item.dateSubmitted.fromNow()}</td>
-                                    <td>{item.hasOwnProperty('dateCompleted') ? item.dateCompleted.format("dd, MMM Do YYYY, h:mm a") + '-' + item.dateCompleted.fromNow() : 'not done yet'}</td>
+                                    <td>{item.dateSubmitted.format("MMM Do YYYY, ddd, h:mm a") + '\n (' + item.dateSubmitted.fromNow() + ')'}</td>
+                                    <td>{item.hasOwnProperty('dateCompleted') ? item.dateCompleted.format("MMM Do YYYY, ddd, h:mm a") + '\n (' + item.dateCompleted.fromNow() + ')' : 'not done yet'}</td>
                                     <td>{item.tileList.length}</td>
-                                    <td>{ displayOptionsJobList(item.options) }</td>
-                                    <td className="max-width">{displayTileListJobList(item.tileList)}</td>
                                     <td>{ item.status.overall }</td>
                                     <td>{ item.status.downloading + '/' + item.tileList.length}</td>
                                     <td>{ item.status.atmosCorrection + '/' + item.tileList.length}</td>
@@ -1327,80 +1572,124 @@ export default class Main extends React.Component {
             </div>)
         };
 
-        return (
-            <div className='main' ref={{}}>
+        const setupLimitInput = () => {
+            if (this.state.maxResults !== -1) {
+                return (
+                    <div>
+                        <input id="maxResults" type='input' defaultValue={this.state.maxResults}
+                               onKeyPress={this.handleMaxResultsChange}/>
+                        <p>Limit set to {this.state.maxResults}</p>
+                    </div>
+                )
+            } else {
+                return <p></p>
+            }
+        };
 
-                <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
+        const setupResolutionSelect = () => {
 
-                <div className="resultList">
-                    <h2>{ this.state.resultsList.length > 0 ? ('Query Results: ' + this.state.resultsList.length + ' results') : 'Query Results'}</h2>
-                    <div className="scrollContainer">
-                         <div className="list">
-                            {this.state.resultsList.map((obj, index) => {
-                                console.log('index', index);
-                                let currentTile = false;
-                                if (obj.uuid === this.state.currentTileID) {
-                                    currentTile  = true;
-                                }
+            return (
+                <div>
+                    <p>Select atmospheric correction resolution:</p>
+                    <div>
+                        <input type="radio" id="10"
+                        name="resolution" value="ten" checked={this.state.resolution === 10} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="10">10 m </label>
 
-                                return (<ResultItem key={obj.uuid} item={obj} itemClicked={this.itemClicked} currentTile={currentTile} resultNumber={index} toggleSelected={this.toggleSelected}/>);
-                            })}
-                        </div>
+                        <input type="radio" id="20"
+                        name="resolution" value="twenty" checked={this.state.resolution === 20} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="20">20 m</label>
+
+                        <input type="radio" id="60"
+                        name="resolution" value="sixty" checked={this.state.resolution === 60} onChange={this.handleResolutionChange}/>
+                        <label htmlFor="60">60 m</label>
                     </div>
                 </div>
+            )
 
-                {tileInfoDiv()}
+        };
 
-                <div className="optionsContainer">
-                    <h1>Options</h1>
-                    <input id="amazonapitoggle" type='checkbox' defaultChecked={this.state.amazonAPI} onChange={this.toggleAmazonAPI} />
-                    <label htmlFor="amazonapitoggle">Use Amazon S3 API</label>
-                    <br/>
-                    <input id="developerCache" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />
-                    <label htmlFor="developerCache">Use Local Cache for GUI Development</label>
-                    <br/>
 
-                    {/* TODO: use developer options on server POST /options */}
-                    {/*<input id="atmosCorrectionResolution" type='text' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
-                    {/*<label htmlFor="developerCache">Set the resolution for atmos correction (m)</label>*/}
-                    {/*<br/>*/}
-                    {/*<input id="maxResults" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />*/}
-                    {/*<label htmlFor="developerCache">Use Local Cache for GUI Development</label>*/}
-                </div>
-                <div className="serverInfo">
-                    { this.state.requestStarted !== undefined ? <p>Request Started</p> : <p>No request running</p>}
-                    { this.state.requestTime != 0 ? <p>Elapsed time {this.state.requestTime}</p> : ""}
-                </div>
-                <LinearCalendar/>
-                <div className="serverControls">
-                    <button onClick={this.showJobModal}>Start Downloading</button>
-                    <button onClick={this.showJobListModal}>View Active Jobs</button>
-                    <ReactModal
-                        className="startJobModal"
-                        ariaHideApp={false} // TODO: should fix this later for accessibility reasons
-                        isOpen={this.state.showJobModal}
-                        shouldCloseOnOverlayClick={true}
-                        onRequestClose={this.handleCloseJobModal}
-                        contentLabel="Server Downloading Jobs"
-                        style={ {}
 
-                            }>
-                            {setupModalContent()}
-                            <button className="modal-button" onClick={this.handleCloseJobModal}>Close</button>
-                    </ReactModal>
-                    <ReactModal
-                        className="startJobModal jobListModal"
-                        ariaHideApp={false} // TODO: should fix this later for accessibility reasons
-                        isOpen={this.state.showJobListModal}
-                        shouldCloseOnOverlayClick={true}
-                        onRequestClose={this.handleCloseJobListModal}
-                        contentLabel="Server Downloading Jobs"
-                        style={{
+        return (
+            <div className='vertical-container'>
+                <div className='main' ref={{}}>
 
-                        }}>
-                        {setupJobListModal()}
-                        <button className="modal-button" onClick={this.handleCloseJobListModal}>Close</button>
-                    </ReactModal>
+                    <div className="mapContainer" style={style} ref={el => this.mapContainer = el}/>
+
+                    <div className="resultList">
+                        <h2>{ this.state.resultsList.length > 0 ? ('Query Results: ' + this.state.resultsList.length + ' results') : 'Query Results'}</h2>
+                        <div className="scrollContainer">
+                            <div className="list">
+                                {this.state.resultsList.map((obj, index) => {
+
+                                    let currentTile = false;
+                                    if (obj.uuid === this.state.currentTileID) {
+                                        currentTile  = true;
+                                    }
+
+                                    return (<ResultItem key={obj.uuid} item={obj} itemClicked={this.itemClicked} currentTile={currentTile} resultNumber={index} toggleSelected={this.toggleSelected}/>);
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {tileInfoDiv()}
+
+                    <div className="optionsContainer">
+                        <h1>Options</h1>
+                        <input id="amazonapitoggle" type='checkbox' defaultChecked={this.state.amazonAPI} onChange={this.toggleAmazonAPI} />
+                        <label htmlFor="amazonapitoggle">Use Amazon S3 API</label>
+                        <br/>
+                        <input id="developerCache" type='checkbox' defaultChecked={this.state.developerCache} onChange={this.toggleDeveloperCache} />
+                        <label htmlFor="developerCache">Use Local Cache for GUI Development</label>
+                        <br/>
+
+                        {/*/!* TODO: use developer options on server POST /options *!/*/}
+                        {/*<input id="atmosCorrectionResolution" type='text' value={this.state.correctionResolution} onChange={this.toggleDeveloperCache} />*/}
+                        {/*<label htmlFor="developerCache">Set the resolution for atmos correction (m)</label>*/}
+                        {/*<br/>*/}
+
+                        <input id="maxResultsCheckbox" type='checkbox' defaultChecked={this.state.maxResults !== -1} onChange={this.toggleMaxResults} />
+                        <label htmlFor="maxResultsCheckbox">Limit Query Results</label>
+                        { setupLimitInput() }
+                        { setupResolutionSelect()}
+                    </div>
+                    <div className="serverInfo">
+                        { this.state.requestStarted !== undefined ? <p>Request Started</p> : <p>No request running</p>}
+                        { this.state.requestTime != 0 ? <p>Elapsed time {this.state.requestTime}</p> : ""}
+                    </div>
+                    <LinearCalendar/>
+                    <div className="serverControls">
+                        <button onClick={this.showJobModal}>Start Downloading</button>
+                        <button onClick={this.showJobListModal}>View Active Jobs</button>
+                        <ReactModal
+                            className="startJobModal"
+                            ariaHideApp={false} // TODO: should fix this later for accessibility reasons
+                            isOpen={this.state.showJobModal}
+                            shouldCloseOnOverlayClick={true}
+                            onRequestClose={this.handleCloseJobModal}
+                            contentLabel="Server Downloading Jobs"
+                            style={ {}
+
+                                }>
+                                {setupModalContent()}
+                                <button className="modal-button" onClick={this.handleCloseJobModal}>Close</button>
+                        </ReactModal>
+                        <ReactModal
+                            className="startJobModal jobListModal"
+                            ariaHideApp={false} // TODO: should fix this later for accessibility reasons
+                            isOpen={this.state.showJobListModal}
+                            shouldCloseOnOverlayClick={true}
+                            onRequestClose={this.handleCloseJobListModal}
+                            contentLabel="Server Downloading Jobs"
+                            style={{
+
+                            }}>
+                            {setupJobListModal()}
+                            <button className="modal-button" onClick={this.handleCloseJobListModal}>Close</button>
+                        </ReactModal>
+                    </div>
                 </div>
             </div>
         );

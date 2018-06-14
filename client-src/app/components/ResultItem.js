@@ -31,7 +31,7 @@ const ResultItem = (props) => {
 
             <h1>Result {props.resultNumber + 1}</h1>
             <div className="imageDiv">
-                <img src={props.item.localImageURL} alt={"Satellite preview image for" + props.item.product_name}/>
+                <img className='preview-img' src={props.item.localImageURL} alt={"Satellite preview image for" + props.item.product_name}/>
             </div>
             <div className="infoDiv">
                 <h3>Folder Name</h3>
