@@ -106,6 +106,14 @@ app.listen(port, () => {
     console.log('Express listening on ' + port);
 });
 
+app.get('/', (req, res) => {
+
+    let client_dirname = path.resolve(__dirname, '..');
+    console.log(client_dirname);
+
+    res.sendfile(client_dirname + '/client-dist/index.html')
+});
+
 
 // connect to ESA Sentinel Datahub API, multiple pages might be required
 const searchSentinelDataHubSinglePage = (polygonString, startRow, startDate) => {
