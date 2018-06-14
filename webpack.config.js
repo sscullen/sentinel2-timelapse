@@ -5,13 +5,12 @@ var SRC_DIR = path.resolve(__dirname, "client-src");
 
 var mode   = process.env.NODE_ENV;
 
-
 var config = {
     entry: SRC_DIR + "/app/index.js",
     output: {
         path: DIST_DIR + "/app",
         filename: "bundle.js",
-        publicPath: "/app/"
+        publicPath: "/",
     },
     module: {
         rules: [
@@ -41,10 +40,26 @@ var config = {
             {
                 test: /\.scss$/, loaders: [ 'style-loader', 'css-loader', 'sass-loader' ]
             },
+            {
+                test: /\.(png|jpg|gif)$/,
+                use: [
+                    {
+                        loader: 'file-loader',
+                        options: {
+                            publicPath: './',
+                            outputPath: 'images/'
+                        },
+
+                    }
+                ]
+            }
         ]
     },
     externals: {
         'Config': JSON.stringify(mode ? require('./s2-tl.config.json') : require('./s2-tl.config.json'))
+    },
+    node: {
+        fs: "empty"
     }
 };
 

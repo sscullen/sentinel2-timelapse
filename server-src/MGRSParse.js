@@ -22,8 +22,6 @@ class MGRSParse {
         return [utmZone[0], mgrsinput.slice(0, 1), mgrsinput.slice(1, 3)]
 
     }
-
-
 }
 
 module.exports = new MGRSParse();

@@ -5,10 +5,14 @@ import { connect } from 'react-redux'
 
 import { User } from '../components/User'
 import Main  from '../components/Main'
-import MapContainer from '../components/MapContainer'
+import MapContainer from '../components/Main'
 
 // import redux actions for convience
 import { setName, setAge } from '../actions/userActions'
+
+
+
+import "../style/style.scss"
 
 // to finish the connection between Redux and React, you do not export the component directly
 // you must pass your component to the function returned by connect method and export that

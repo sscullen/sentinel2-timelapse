@@ -1,0 +1,221 @@
+$btn-font-weight:bold;
+
+body {
+  width: 100vw;
+  height: 100vh;
+}
+
+.main {
+  flex-grow: 1;
+
+  display: grid;
+
+  //grid-template-columns: minmax(min-content, 2fr) minmax(max-content, 1fr);
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: 40vh 29vh 19vh 9vh;
+  grid-gap: 1vh;
+
+  min-width: 100%;
+  height: 100%;
+
+    .mainMap {
+      // have to sync this height with the height in the declaration of <Map> inside MapContainer
+
+      height: 40vh;
+      width: 100%;
+      margin: 0 auto;
+      margin-top: 20px;
+
+      grid-column: span 2;
+    }
+
+    .resultList {
+
+      grid-column: 2 / 3;
+      grid-row: 1 / 3;
+     
+      overflow-y: scroll;
+      overflow-x: hidden;
+      
+      max-height: 100%;
+      min-height: 100%;
+      max-width: 100%;
+      min-width: 100%;
+
+      font-size: 0.8em;
+
+      justify-self: center;
+
+      border: 1px solid lightgray;
+
+      h2 {
+        font-size: 2em;
+        font-weight: 700;
+        padding: 10px;
+      }
+
+      h3 {
+        font-size: 2em;
+        font-weight: 800;
+
+      }
+
+      ul {
+        justify-self: right;
+      }
+
+      li {
+        border-bottom: 1px solid grey;
+        padding: 20px;
+        max-height: 20%;
+      }
+
+    }
+
+    .tile-info {
+      grid-column: span 1;
+      min-height: 100%;
+      max-height: 100%;
+
+
+      .imageDiv {
+        min-height: 100%;
+        max-height: 100%;
+      }
+
+      p {
+        font-size: 12px;
+        word-break: break-all;
+      }
+
+      .label {
+        font-weight: 500;
+        font-size: 13px;
+        color: black;
+        padding: 0px;
+      }
+
+      img {
+        min-height: 100%;
+        max-height: 100%;
+
+        border: 1px solid lightcoral;
+        flex-shrink: 1;
+      }
+
+      .flex-container {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        min-height: 100%;
+        max-height: 100%;
+
+      }
+
+      .textInfoDiv {
+        padding: 0px 20px;
+      }
+    }
+
+    .serverControls {
+      button {
+        background-color: lightgray;
+        border: 2px solid coral;
+        padding: 5px;
+        border-radius: 3px;
+        font-weight: 700;
+      }
+
+      justify-self: center;
+    }
+}
+
+.startJobModal {
+  z-index: 100000;
+  background-color: white;
+  border: 1px lightgray solid;
+
+  width: 50%;
+  padding: 50px;
+}
+
+.ReactModal__Overlay.ReactModal__Overlay--after-open {
+  background-color: transparent;
+  z-index: 100000;
+}
+
+.ReactModal__Content.ReactModal__Content--after-open {
+  color: black;
+  z-index: 100000;
+  margin: auto;
+}
+
+.startJobModal .modal-button {
+  position: relative;
+
+  background-color: lightgray;
+  border: 2px solid coral;
+  padding: 5px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
+.jobListModal {
+  z-index: 10000;
+  width: 100%;
+  margin: auto;
+
+  h1 {
+    text-align: center;
+    font-size: 17px;
+    padding-bottom: 5px;
+  }
+}
+
+.jobListModal {
+
+}
+
+td.max-width {
+  max-width: 50px;
+  overflow: hidden;
+
+}
+
+td {
+  border: 1px dotted lightgray;
+  font-size: 12px;
+  padding: 4px;
+}
+
+th {
+  font-size: 13px;
+  padding: 5px;
+}
+
+.mapboxgl-ctrl-group > button {
+  border-color:rgba(0,0,0,0.9);
+  color:rgba(255,255,255,0.5);
+  width:50px;
+  height:50px;
+}
+//@import '~bootstrap/scss/bootstrap.scss';
+
+.container {
+
+  padding: 0px;
+}
+
+.vertical-container {
+
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+
+  height: 100vh;
+  max-height: 100vh;
+  width: 100vw;
+  min-width: 1280px;
+
+}
