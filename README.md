@@ -38,27 +38,27 @@ https://drive.google.com/file/d/1-sIt-sQbAT5xu5d5QifjfqemwskxfvV1/view?usp=shari
 
 Later in the intructions, you will place the `static` folder in the downloaded code from github, in `sentinel2-timelapse/client-dist/app`
 
-### Get Sentinel2-Timelapse and Install
+#### Get Sentinel2-Timelapse and Install
 
 Download the latest .zip of the code from here https://github.com/sscullen/sentinel2-timelapse/archive/master.zip or do a git clone of https://github.com/sscullen/sentinel2-timelapse , if the repo is private, request permission from ss.cullen [at] uleth.ca.
 
 Extract the code, and from inside the extracted folder, run these commands:
 
-`bash
+```
 npm install
-`
+```
 
 This will install all the node.js and javascript dependencies.
 
-`bash
+```
 npm run webpack
-`
+```
 
 This will transpile the code into a single bundle.js which is the heart of our application.
 
-`bash
+```
 npm run start
-`
+```
 
 This is the command that actually starts the application. There are 2 components, the client and the server. The server does 2 critical things: serves the client application, and responds to RESTful API requests from the client application. You can verify everything is working by going to http://localhost:8000 
 
